@@ -12,7 +12,10 @@ const { isActive, createEntry, failEntry, applyHostEvent, folderOf, pruneHistory
   globalThis.YtdlpDownloads;
 
 const HOST_NAME = "dev.firstpick.ytdlp_downloader";
-const INSTALL_HINT = "Run native-host/install.sh, then restart the browser.";
+const INSTALL_HINT = "Open the setup page (yt-dlp settings → Open setup) and run its command.";
+const SETUP_PAGE = "setup/setup.html";
+// Host error codes the setup command fixes; their notifications open the setup page.
+const SETUP_ERROR_CODES = new Set(["ytdlp_missing", "ffmpeg_missing"]);
 // Above the host's own 5 s bound on `yt-dlp --version`, so a slow cold start still answers.
 const PING_TIMEOUT_MS = 10_000;
 // A folder dialog waits on the user; the bound only guards against a hung picker process.
@@ -29,8 +32,11 @@ const downloads = new Map();
 let pendingPing = null;
 /** @type {Map<string, (error: Error | null, path?: string | null) => void>} */
 const pendingDirectories = new Map();
-/** notification id → folder to open when the notification is clicked */
-const notificationFolders = new Map();
+/**
+ * notification id → what a click on it does
+ * @type {Map<string, {type: "openFolder", folder: string} | {type: "openSetup"}>}
+ */
+const notificationActions = new Map();
 /** Last known host status, shown on the options page. */
 let hostStatus = { reachable: null, error: null, pong: null };
 let broadcastTimer = null;
@@ -52,7 +58,7 @@ function describeHostError(error) {
     return `The native host "${HOST_NAME}" is not installed. ${INSTALL_HINT}`;
   }
   if (/permission/i.test(raw)) {
-    return `The native host manifest does not allow this extension. Re-run native-host/install.sh. (${raw})`;
+    return `The native host manifest does not allow this extension. Run the setup command again. (${raw})`;
   }
   return `Native host error: ${raw}`;
 }
@@ -127,7 +133,7 @@ function handlePortLoss(lost, error) {
     downloads.set(entry.id, failEntry(entry, message, "host_disconnected"));
     failed += 1;
   }
-  if (failed > 0) notifyAlways("yt-dlp: native host unavailable", message);
+  if (failed > 0) notifyHostUnavailable(message);
   stateChanged();
 }
 
@@ -225,6 +231,24 @@ function pingHost() {
 }
 
 /**
+ * Closes the port if nothing is using it, so the next message starts the
+ * helper again. After an update the old helper process would otherwise keep
+ * answering with its old version until the browser restarts. A busy port is
+ * left alone: closing it would kill running downloads.
+ */
+function dropIdlePort() {
+  if (!port) return;
+  if (pendingPing !== null || pendingDirectories.size > 0 || [...downloads.values()].some(isActive)) return;
+  const idle = port;
+  port = null;
+  try {
+    idle.disconnect();
+  } catch {
+    // Already disconnected.
+  }
+}
+
+/**
  * Opens the host's native folder dialog.
  * @param {unknown} start preferred starting folder
  * @returns {Promise<string | null>} chosen absolute path, or null if the user cancelled
@@ -267,9 +291,15 @@ function applyDownloadEvent(msg) {
   if (msg.type === "started") {
     void notify("Download started", name);
   } else if (msg.type === "finished") {
-    void notify("Download finished", `${name}\nClick to open the folder.`, folderOf(next));
+    const folder = folderOf(next);
+    void notify("Download finished", `${name}\nClick to open the folder.`, folder ? { type: "openFolder", folder } : null);
   } else if (msg.type === "error") {
-    void notify("Download failed", `${name}\n${next.error}`);
+    const setup = SETUP_ERROR_CODES.has(next.errorCode);
+    void notify(
+      "Download failed",
+      setup ? `${name}\n${next.error}\nClick to open the setup page.` : `${name}\n${next.error}`,
+      setup ? { type: "openSetup" } : null,
+    );
   }
   stateChanged();
 }
@@ -286,7 +316,7 @@ function startDownload(url, options) {
   // during a retry must not fail this entry. See handlePortLoss.
   const sendError = postToHost({ type: "download", id, url, options });
   downloads.set(id, sendError ? failEntry(entry, sendError, "host_unavailable") : entry);
-  if (sendError) notifyAlways("yt-dlp: native host unavailable", sendError);
+  if (sendError) notifyHostUnavailable(sendError);
   pruneDownloads();
   stateChanged();
 }
@@ -401,15 +431,15 @@ function updateBadge() {
  * click could not start a download at all, so it never fails silently.
  * @param {string} title
  * @param {string} message
- * @param {string | null} [folder] folder to open when clicked
+ * @param {{type: "openFolder", folder: string} | {type: "openSetup"} | null} [action] what a click does
  */
-function notifyAlways(title, message, folder = null) {
+function notifyAlways(title, message, action = null) {
   const id = `ytdlp-${crypto.randomUUID()}`;
-  if (folder) notificationFolders.set(id, folder);
+  if (action) notificationActions.set(id, action);
   browser.notifications
     .create(id, { type: "basic", iconUrl: ICON_URL, title, message })
     .catch((error) => {
-      notificationFolders.delete(id);
+      notificationActions.delete(id);
       console.warn("yt-dlp: notification failed", error);
     });
 }
@@ -418,29 +448,63 @@ function notifyAlways(title, message, folder = null) {
  * Shows a notification if the user enabled notifications.
  * @param {string} title
  * @param {string} message
- * @param {string | null} [folder]
+ * @param {{type: "openFolder", folder: string} | {type: "openSetup"} | null} [action]
  * @returns {Promise<void>}
  */
-async function notify(title, message, folder = null) {
+async function notify(title, message, action = null) {
   try {
     if (!(await loadSettings()).notifications) return;
   } catch {
     return;
   }
-  notifyAlways(title, message, folder);
+  notifyAlways(title, message, action);
+}
+
+/**
+ * Tells the user a download could not reach the helper; a click opens the setup page.
+ * @param {string} message
+ */
+function notifyHostUnavailable(message) {
+  notifyAlways("yt-dlp: native host unavailable", `${message}\nClick to open the setup page.`, { type: "openSetup" });
 }
 
 browser.notifications.onClicked.addListener((notificationId) => {
-  const folder = notificationFolders.get(notificationId);
-  if (folder) {
-    const sendError = postToHost({ type: "openPath", path: folder });
+  const action = notificationActions.get(notificationId);
+  notificationActions.delete(notificationId);
+  if (action?.type === "openFolder") {
+    const sendError = postToHost({ type: "openPath", path: action.folder });
     if (sendError) notifyAlways("Could not open folder", sendError);
+  } else if (action?.type === "openSetup") {
+    showSetupPage();
   }
   void browser.notifications.clear(notificationId);
 });
 
 browser.notifications.onClosed.addListener((notificationId) => {
-  notificationFolders.delete(notificationId);
+  notificationActions.delete(notificationId);
+});
+
+// ---------------------------------------------------------------------------
+// Setup page
+// ---------------------------------------------------------------------------
+
+/**
+ * Opens the setup page in a new tab.
+ * @returns {Promise<object>} resolves to {} once the tab exists
+ */
+function openSetupPage() {
+  return browser.tabs.create({ url: browser.runtime.getURL(SETUP_PAGE) }).then(() => ({}));
+}
+
+/** Opens the setup page from an event listener, where nobody awaits the result. */
+function showSetupPage() {
+  openSetupPage().catch((error) => console.warn("yt-dlp: could not open the setup page", error));
+}
+
+// Only a fresh install: updates and browser updates keep a working setup, and
+// temporary loads (web-ext run, about:debugging) count as an install on every launch.
+browser.runtime.onInstalled.addListener(({ reason, temporary }) => {
+  if (reason === "install" && !temporary) showSetupPage();
 });
 
 // ---------------------------------------------------------------------------
@@ -488,7 +552,7 @@ browser.menus.onClicked.addListener((info) => {
 });
 
 // ---------------------------------------------------------------------------
-// Messages from the popup and options page
+// Messages from extension pages (popup, options, setup)
 // ---------------------------------------------------------------------------
 
 /**
@@ -526,7 +590,10 @@ browser.runtime.onMessage.addListener((message, sender) => {
     case "getState":
       return Promise.resolve({ ok: true, downloads: snapshot(), host: hostStatus });
     case "ping":
+      if (message.reconnect === true) dropIdlePort();
       return reply(pingHost().then((pong) => ({ pong })));
+    case "openSetup":
+      return reply(openSetupPage());
     case "pickDirectory":
       return reply(pickDirectory(message.start).then((path) => ({ path })));
     case "cancel":

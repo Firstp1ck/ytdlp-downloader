@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-host_name=dev.firstpick.ytdlp_downloader
-install_dir="$HOME/.local/share/ytdlp-downloader"
 target_dirs=()
 dry_run=false
 source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,25 +29,12 @@ while (($#)); do
         *) usage >&2; exit 2 ;;
     esac
 done
-if ((${#target_dirs[@]} == 0)); then
-    target_dirs=("$HOME/.mozilla/native-messaging-hosts")
-fi
-
+setup_flags=(--uninstall)
 for target_dir in "${target_dirs[@]}"; do
-    if "$dry_run"; then
-        printf 'Would remove: %s/%s.json\n' "$target_dir" "$host_name"
-    else
-        rm -f -- "$target_dir/$host_name.json"
-    fi
+    setup_flags+=(--target-dir "$target_dir")
 done
-if "$dry_run"; then
-    printf 'Would remove: %s/ytdlp_host.py\n' "$install_dir"
-else
-    rm -f -- "$install_dir/ytdlp_host.py"
-    if [[ -d "$install_dir" ]]; then
-        rmdir -- "$install_dir" 2>/dev/null || true
-    fi
-fi
+if "$dry_run"; then setup_flags+=(--dry-run); fi
+bash "$source_dir/setup.sh" "${setup_flags[@]}"
 if [[ -f "$profiles_ini" ]]; then
     if "$dry_run"; then
         python3 "$source_dir/unsigned_pref.py" remove "$profiles_ini" --dry-run

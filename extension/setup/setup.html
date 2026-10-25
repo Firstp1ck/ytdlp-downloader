@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Set up yt-dlp Downloader</title>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="../options/options.css" />
+    <link rel="stylesheet" href="setup.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-head">
+        <img src="../icons/icon.svg" alt="" width="36" height="36" />
+        <div>
+          <h1>Set up yt-dlp Downloader</h1>
+          <p class="muted">One command in a terminal, then downloads work.</p>
+        </div>
+      </header>
+
+      <p class="visually-hidden" id="announce" role="status" aria-live="polite"></p>
+
+      <section class="card" id="setup-card" aria-labelledby="state-title" data-state="checking">
+        <h2 class="state-title" id="state-title">Checking for the helper…</h2>
+        <p id="state-lead"></p>
+
+        <ul class="checklist" id="checklist" aria-label="Setup checklist"></ul>
+
+        <p class="setup-warning" id="ready-warning" hidden>
+          <span class="warning-icon" aria-hidden="true">⚠</span>
+          <span>
+            <strong>No JavaScript runtime found.</strong> Downloads work, but without one yt-dlp can miss some
+            YouTube formats. Run the command below to install Deno, then press <strong>Check again</strong>.
+          </span>
+        </p>
+
+        <div class="command-block" id="command-block" hidden>
+          <p id="command-label">Open a terminal, paste this command, and press Enter:</p>
+          <div class="command-row">
+            <pre class="command"><code id="command" tabindex="0" role="textbox" aria-readonly="true" aria-labelledby="command-label" aria-describedby="command-hint"></code></pre>
+            <button type="button" class="button primary" id="copy">Copy</button>
+          </div>
+          <p class="copy-status" id="copy-status" role="status" aria-live="polite"></p>
+          <p class="hint" id="command-hint">
+            It downloads the helper from this release's GitHub page, checks it, and asks before it installs
+            yt-dlp, ffmpeg, or Deno. Your package manager may ask for your password.
+          </p>
+          <p class="links">
+            <a id="script-link" target="_blank" rel="noopener noreferrer">View the script first</a>
+            <a id="manual-link" target="_blank" rel="noopener noreferrer">Manual install</a>
+          </p>
+        </div>
+
+        <details class="error-details" id="error-details" hidden>
+          <summary>What the browser reported</summary>
+          <p id="error-text"></p>
+        </details>
+
+        <div class="ready-block" id="ready-block" hidden>
+          <h3>How to use</h3>
+          <ul>
+            <li>Right-click a YouTube video, Short, or link and choose <strong>Download Video</strong> or <strong>Download Audio</strong>.</li>
+            <li>On YouTube, they're also in the menu you get by right-clicking the video itself.</li>
+            <li>The toolbar button shows running downloads.</li>
+          </ul>
+          <p><button type="button" class="button primary" id="open-settings">Open settings</button></p>
+        </div>
+
+        <div class="poll-row" id="poll-row">
+          <p class="poll-status" id="poll-status"><span class="spinner" aria-hidden="true"></span><span id="poll-text">Waiting for the helper…</span></p>
+          <button type="button" class="button" id="check-again">Check again</button>
+        </div>
+      </section>
+
+      <p class="hint platform-note">
+        Linux only, and you need a terminal. Flatpak and Snap builds of Firefox or Zen are not supported:
+        their sandbox does not let the browser start the helper.
+      </p>
+    </main>
+
+    <script src="../shared/setup-info.js"></script>
+    <script src="setup.js"></script>
+  </body>
+</html>

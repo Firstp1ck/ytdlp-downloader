@@ -111,16 +111,39 @@ class ValidationTests(unittest.TestCase):
 
 
 class ArgvTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(host, "find_js_runtime", return_value=None)
+        self.runtime = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_runtime_mapping_with_and_without_each_runtime(self):
+        options = host.validate_options({}, "/tmp/save")
+        for runtime in (None, {"name": "deno", "path": "/tmp/my runtime/deno"},
+                        {"name": "node", "path": "/usr/bin/node"},
+                        {"name": "bun", "path": "/tmp/bun"}):
+            with self.subTest(runtime=runtime):
+                self.runtime.return_value = runtime
+                argv = host.build_argv("yt-dlp", "https://example.test/a", options, "/tmp/staging")
+                if runtime:
+                    self.assertEqual(argv[argv.index("--js-runtimes") + 1],
+                                     f'{runtime["name"]}:{runtime["path"]}')
+                    self.assertLess(argv.index("--js-runtimes"), argv.index("--"))
+                else:
+                    self.assertNotIn("--js-runtimes", argv)
+
     def test_every_mode_format_resolution_quality_playlist_combination(self):
         keys = ["mode", "videoResolution", "videoFormat", "audioQuality", "audioFormat"]
         combinations = itertools.product(*(sorted(host.ENUMS[key]) for key in keys), [False, True])
+        count = 0
         for values in combinations:
+            count += 1
             supplied = dict(zip(keys + ["playlist"], values))
             with self.subTest(options=supplied):
                 options = host.validate_options(supplied, "/tmp/save with spaces")
                 argv = host.build_argv("/tmp/yt-dlp", "https://example.test/a?x=1&y=2", options,
                                        "/tmp/save with spaces/.staging/job")
                 self.assertEqual(argv[0], "/tmp/yt-dlp")
+                self.assertNotIn("--js-runtimes", argv)
                 self.assertEqual(argv[-2:], ["--", "https://example.test/a?x=1&y=2"])
                 self.assertEqual(argv[argv.index("-P") + 1], "/tmp/save with spaces/.staging/job")
                 self.assertIn("--ignore-config", argv)
@@ -168,6 +191,7 @@ class ArgvTests(unittest.TestCase):
                     self.assertEqual(argv[argv.index("--audio-quality") + 1],
                                      "0" if quality == "best" else quality + "K")
 
+        self.assertEqual(count, 4032)
 
 
 class PublishTests(unittest.TestCase):
@@ -361,8 +385,12 @@ class SubprocessTests(unittest.TestCase):
         ffmpeg = stub_bin / "ffmpeg"
         ffmpeg.write_text("#!/bin/sh\nexit 0\n")
         ffmpeg.chmod(0o755)
+        deno = stub_bin / "deno"
+        deno.write_text("#!/bin/sh\nexit 0\n")
+        deno.chmod(0o755)
+        self.runtime = {"name": "deno", "path": str(deno)}
         self.env = {**os.environ, "YTDLP_HOST_YTDLP": str(binary),
-                    "PATH": f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
+                    "HOME": str(self.root), "PATH": str(stub_bin)}
         self.pipe = PipeHost(self.env)
         self.addCleanup(self.temp.cleanup)
         self.addCleanup(self.pipe.close)
@@ -388,7 +416,8 @@ class SubprocessTests(unittest.TestCase):
     def test_real_framing_ping_pong_and_eof(self):
         self.pipe.send({"type": "ping"})
         pong = self.pipe.until(lambda m: m["type"] == "pong")
-        self.assertEqual(pong["hostVersion"], "1.0.0")
+        self.assertEqual(pong["hostVersion"], "1.1.0")
+        self.assertEqual(pong["jsRuntime"], self.runtime)
         self.assertEqual(pong["ytDlp"]["version"], "fake-1.0")
         self.assertTrue(pong["ytDlp"]["found"])
         self.assertTrue(os.path.isabs(pong["defaultSaveDir"]))
@@ -572,6 +601,42 @@ class ToolAndDispatchTests(unittest.TestCase):
                 mock.patch.object(Path, "is_file", return_value=True), \
                 mock.patch.object(host.os, "access", return_value=True):
             self.assertEqual(host.find_ytdlp(), str(Path.home() / ".local/bin/yt-dlp"))
+
+    def test_runtime_discovery_order_with_executable_fakes(self):
+        with tempfile.TemporaryDirectory(prefix="ytdlp-runtimes-") as directory:
+            root = Path(directory)
+            path_bin = root / "path"
+            local_bin = root / ".local/bin"
+            deno_bin = root / ".deno/bin"
+            for parent in (path_bin, local_bin, deno_bin):
+                parent.mkdir(parents=True)
+                for name in ("deno", "node", "bun"):
+                    binary = parent / name
+                    binary.write_text("#!/bin/sh\nexit 0\n")
+                    binary.chmod(0o755)
+            with mock.patch.dict(os.environ, {"HOME": str(root), "PATH": str(path_bin)}):
+                for name in ("deno", "node", "bun"):
+                    for parent in (path_bin, local_bin, deno_bin):
+                        self.assertEqual(host.find_js_runtime(), {"name": name, "path": str(parent / name)})
+                        (parent / name).unlink()
+                self.assertIsNone(host.find_js_runtime())
+                # Nonexecutable files and executable directories aren't runtimes.
+                (local_bin / "deno").write_text("not executable")
+                (local_bin / "node").mkdir()
+                self.assertIsNone(host.find_js_runtime())
+
+    def test_pong_runtime_field_and_failed_ytdlp_probe(self):
+        for runtime in (None, {"name": "node", "path": "/tmp/node"}):
+            for code, expected_version in ((0, "2026.10.21"), (3, None)):
+                with self.subTest(runtime=runtime, code=code), \
+                        mock.patch.object(host, "find_js_runtime", return_value=runtime), \
+                        mock.patch.object(host, "find_ytdlp", return_value="/tmp/yt-dlp"), \
+                        mock.patch.object(host.subprocess, "run", return_value=mock.Mock(returncode=code, stdout="2026.10.21\n")):
+                    self.native.send_pong()
+                    pong = self.messages()[-1]
+                    self.assertEqual(pong["hostVersion"], "1.1.0")
+                    self.assertEqual(pong["jsRuntime"], runtime)
+                    self.assertEqual(pong["ytDlp"]["version"], expected_version)
 
     def test_default_directory_fallback(self):
         with mock.patch.object(host.shutil, "which", return_value=None):

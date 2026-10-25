@@ -17,59 +17,83 @@ It has two parts:
 
 A Zen "mod" can't do this: mods are CSS theme tweaks with no access to processes.
 
-## Requirements
-
-- Linux, with Firefox or Zen installed natively (not Flatpak or Snap)
-- Python 3.8+
-- `yt-dlp` on `PATH` or in `~/.local/bin`
-- `ffmpeg`, used to merge video and audio and for every audio download
-- Optional: `zenity`, `kdialog`, or `yad` for the **Browse…** folder picker
-
 ## Install
 
-1. Get the code and run the installer:
+**1. Add the extension:** download `ytdlp-downloader-<version>.xpi` from the
+[latest release](https://github.com/Firstp1ck/ytdlp-downloader/releases/latest) and open it in
+Firefox or Zen. (It isn't on addons.mozilla.org yet; until then see
+[unsigned add-ons](#unsigned-add-ons) below.)
 
-   ```sh
-   git clone https://github.com/Firstp1ck/ytdlp-downloader.git
-   cd ytdlp-downloader
-   ./native-host/install.sh
-   ```
+**2. Follow the setup page that opens.** It checks what's missing and shows one command to paste
+into a terminal:
 
-   No git? Download *Source code* from the [latest release](https://github.com/Firstp1ck/ytdlp-downloader/releases/latest)
-   and unpack it. Each release also has the packaged `ytdlp-downloader-<version>.xpi` attached,
-   but the extension can't download anything without the helper that `install.sh` registers.
+```sh
+curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.0/setup.sh | bash
+```
 
-   It does three things:
+The command (the setup page shows the one matching your installed version) does two things:
 
-   - **Registers the helper.** It copies the host to `~/.local/share/ytdlp-downloader/` and writes
-     `~/.mozilla/native-messaging-hosts/dev.firstpick.ytdlp_downloader.json`. Firefox and Zen both
-     read native hosts from `~/.mozilla` (Zen keeps profiles in `~/.zen` but not host manifests).
-   - **Optionally allows unsigned add-ons** (it asks; default no). This extension isn't signed by
-     Mozilla, so Zen only keeps it enabled while `xpinstall.signatures.required` is `false`. If you
-     say yes, or pass `--allow-unsigned`, the script adds that pref to `user.js` in every profile in
-     `~/.zen/profiles.ini`. Zen applies `user.js` at every start, so the extension can't get disabled
-     later. This allows **any** unsigned add-on, not only this one.
-   - **Builds `dist/ytdlp-downloader.xpi` and offers to open it** in Zen (it asks; default yes).
-     Zen then shows its own "Add yt-dlp Downloader?" dialog; click **Add**. If the script has just
-     written the pref while Zen is running, it skips this step and tells you to restart Zen first;
-     then open the `.xpi` (drag it onto the window, or ⚙️ → *Install Add-on From File…* in
-     `about:addons`).
+1. **Installs the helper**, a small program that lets the browser run yt-dlp (Firefox doesn't let
+   extensions start programs themselves). It's downloaded from the same GitHub release and checked
+   against a SHA-256 checksum baked into the script. It goes to `~/.local/share/ytdlp-downloader/`
+   and is registered in `~/.mozilla/native-messaging-hosts/`.
+2. **Offers to install what's missing**: yt-dlp, ffmpeg, and a JavaScript runtime (Deno), which
+   yt-dlp uses to solve YouTube's challenges (Node or Bun work too if you already have them). It
+   shows the plan and asks first; `sudo` asks for your password when needed.
 
-   Non-interactive form: `./native-host/install.sh --allow-unsigned --install-extension`.
-   `--dry-run` previews everything. Other browsers: `--target-dir ~/.librewolf/native-messaging-hosts`,
-   `--profiles-ini ~/.librewolf/profiles.ini`, `--browser librewolf`. Regular Firefox release
-   ignores the signing pref, so there the add-on has to be signed on AMO (it can stay unlisted), or
-   loaded temporarily.
+   | Distro | yt-dlp | ffmpeg | Deno |
+   |---|---|---|---|
+   | Arch and derivatives | `pacman` | `pacman` | `pacman` |
+   | Fedora | `dnf` | `dnf` (`ffmpeg-free`) | official build in `~/.local/bin` |
+   | openSUSE | `zypper` | `zypper` | official build in `~/.local/bin` |
+   | Debian, Ubuntu | official standalone build in `~/.local/bin` (apt's is usually too old for YouTube) | `apt-get` | official build in `~/.local/bin` |
+   | others | instructions only | instructions only | official build in `~/.local/bin` |
 
-2. Open the extension's settings and check the **Native host status** panel. It should show the
-   yt-dlp version and that ffmpeg was found.
+   Downloaded builds are checked against the SHA-256 list their project publishes and test-run
+   before setup reports success. If you say no or something fails, the helper is installed anyway
+   and the setup page shows what's still missing.
 
-**Temporary alternative** (removed when the browser restarts, no signing pref needed): open
-`about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on…**, and select
-`extension/manifest.json`.
+The setup page notices the helper by itself and switches to **Ready**. No browser restart needed.
 
-**Updating:** `git pull` (or download the new release), then run `install.sh` again. It rebuilds the `.xpi` and
-reinstalls it over the old version; your settings stay.
+[Read the script first](https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.0/setup.sh)
+if you like (that's the exact file the command runs). Options (add them after `bash -s --`):
+`--no-deps` skips step 2, `--yes` accepts step 2 without asking, `--dry-run` shows what would
+happen, and `--uninstall` removes the helper.
+
+### Requirements
+
+- Linux, with Firefox (140+) or Zen installed natively (not Flatpak or Snap: their sandbox doesn't
+  let the browser start the helper)
+- Python 3.8+ for the helper (preinstalled on practically every distro)
+- yt-dlp, ffmpeg, and a JavaScript runtime (Deno, or Node/Bun); the setup command can install them
+- Optional: `zenity`, `kdialog`, or `yad` for the **Browse…** folder picker
+
+### From a git checkout
+
+```sh
+git clone https://github.com/Firstp1ck/ytdlp-downloader.git
+cd ytdlp-downloader
+./native-host/install.sh
+```
+
+`install.sh` runs the same setup with the helper from your checkout, then builds
+`dist/ytdlp-downloader.xpi` and offers to open it in the browser. Flags: `--target-dir DIR` for
+other Firefox forks (e.g. `~/.librewolf/native-messaging-hosts`), `--browser CMD`, `--yes`,
+`--no-deps`, `--dry-run`. If you installed the extension some other way (store or release `.xpi`),
+add `--no-install-extension --no-allow-unsigned`.
+
+### Unsigned add-ons
+
+Until the extension is on addons.mozilla.org, the `.xpi` isn't signed by Mozilla. Zen, Firefox
+Developer Edition/Nightly and LibreWolf accept it when `xpinstall.signatures.required` is `false`
+in `about:config`. `install.sh --allow-unsigned` sets that in each Zen profile's `user.js` so it
+can't get switched back (this allows **any** unsigned add-on). Regular Firefox release ignores the
+pref; use **Load Temporary Add-on…** in `about:debugging` there (removed on restart).
+
+### Updating
+
+Extension updates come with each release (or automatically from the store, once listed). When an
+update needs a newer helper, the setup page says so and shows the command again.
 
 ## Use
 
@@ -129,19 +153,24 @@ Notes:
 ## Uninstall
 
 ```sh
-./native-host/uninstall.sh   # same --target-dir / --profiles-ini flags as install
+curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.0/setup.sh | bash -s -- --uninstall
 ```
 
-This also removes the `user.js` line that `--allow-unsigned` added. The pref itself stays `false`
-until you set it back to `true` in `about:config`.
-
-Then remove the add-on in `about:addons`.
+or `./native-host/uninstall.sh` from a checkout (which also removes the `user.js` line that
+`--allow-unsigned` added; the pref stays `false` until you change it in `about:config`). Then remove
+the add-on in `about:addons`.
 
 ## Troubleshooting
 
-- **"Native host unavailable"**: run `install.sh`, then restart the browser. Check that the manifest
-  exists and that its `path` points to an executable file.
-- **Downloads fail after a YouTube change**: update yt-dlp (`yt-dlp -U`, or your package manager).
+- **"yt-dlp: native host unavailable" / setup page stays red**: run the setup command again and read its
+  output. Check that `~/.mozilla/native-messaging-hosts/dev.firstpick.ytdlp_downloader.json` exists
+  and its `path` points to an executable file. Flatpak/Snap browsers can't start it.
+- **Downloads fail after a YouTube change**: update yt-dlp (your package manager, or `yt-dlp -U` for
+  the build in `~/.local/bin`).
+- **Setup page says yt-dlp "doesn't run"**: the installed yt-dlp fails `yt-dlp --version`, usually
+  because it needs a newer Python. Update it, or remove it and run the setup command again.
+- **"JavaScript runtime" warning**: without Deno (or Node/Bun) YouTube may hide some formats or
+  videos. Run the setup command again to install Deno.
 - **Host logs**: the host writes diagnostics to stderr, which shows up in the Browser Console
   (Ctrl+Shift+J).
 
@@ -150,6 +179,7 @@ Then remove the add-on in `about:addons`.
 - [TECHNICAL.md](TECHNICAL.md): architecture, the native messaging protocol, yt-dlp mapping, security.
 - [DEVELOPMENT.md](DEVELOPMENT.md): repository layout, tests, debugging, packaging.
 - [CHANGELOG.md](CHANGELOG.md): release history.
+- [docs/AMO.md](docs/AMO.md): addons.mozilla.org listing text and reviewer notes.
 
 ## License
 

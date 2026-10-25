@@ -21,7 +21,7 @@ import uuid
 from urllib.parse import urlsplit
 
 
-HOST_VERSION = "1.0.0"
+HOST_VERSION = "1.1.0"
 MAX_CONCURRENT = 2
 MAX_MESSAGE_BYTES = 1024 * 1024
 # Firefox rejects host messages over 1 MB; a long playlist's path list could exceed it.
@@ -156,6 +156,9 @@ def build_argv(binary, url, options, staging_dir):
             "--progress-template", "postprocess:" + PROGRESS_TEMPLATE,
             "--print", "after_move:" + FILE_TEMPLATE,
             "--yes-playlist" if options["playlist"] else "--no-playlist"]
+    runtime = find_js_runtime()
+    if runtime:
+        argv += ["--js-runtimes", f'{runtime["name"]}:{runtime["path"]}']
     if options["mode"] == "video":
         argv += ["-f", "bv*+ba/b"]
         sort = []
@@ -291,6 +294,19 @@ def find_ytdlp():
     return binary
 
 
+def find_js_runtime():
+    """Prefer deno, node, then bun, including executables outside browser PATHs."""
+    for name in ("deno", "node", "bun"):
+        binary = shutil.which(name)
+        if binary:
+            return {"name": name, "path": os.path.abspath(binary)}
+        for directory in (".local/bin", ".deno/bin"):
+            candidate = Path.home() / directory / name
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return {"name": name, "path": str(candidate)}
+    return None
+
+
 def default_save_dir():
     """Resolve the XDG download directory, falling back to ~/Downloads."""
     binary = shutil.which("xdg-user-dir")
@@ -405,6 +421,7 @@ class NativeHost:
         self.send({"type": "pong", "hostVersion": HOST_VERSION,
                    "ytDlp": {"found": binary is not None, "path": binary, "version": version},
                    "ffmpeg": {"found": ffmpeg is not None, "path": ffmpeg},
+                   "jsRuntime": find_js_runtime(),
                    "defaultSaveDir": self.default_dir, "picker": find_picker()})
 
     def submit(self, message):

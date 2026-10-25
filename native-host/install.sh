@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-host_name=dev.firstpick.ytdlp_downloader
-install_dir="$HOME/.local/share/ytdlp-downloader"
 source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 target_dirs=()
 dry_run=false
+setup_flags=()
 # unset = ask when run in a terminal; yes/no = decided by flag
 allow_unsigned=""
 install_extension=""
@@ -16,13 +15,14 @@ xpi="$repo_dir/dist/ytdlp-downloader.xpi"
 
 usage() {
     echo "Usage: $0 [--target-dir DIR ...] [--allow-unsigned | --no-allow-unsigned] [--profiles-ini FILE]"
-    echo "          [--install-extension | --no-install-extension] [--browser CMD] [--xpi-out FILE] [--dry-run]"
+    echo "          [--install-extension | --no-install-extension] [--browser CMD] [--xpi-out FILE] [--dry-run] [--yes] [--no-deps]"
     echo 'Explicit target directories replace the default ~/.mozilla/native-messaging-hosts.'
     echo '--allow-unsigned writes xpinstall.signatures.required=false into user.js of every profile'
     echo 'listed in --profiles-ini (default ~/.zen/profiles.ini), so the unsigned .xpi stays enabled.'
     echo 'Always builds dist/ytdlp-downloader.xpi. --install-extension opens it in the browser'
     echo '(default: zen-browser, else firefox), which asks you to confirm the install.'
     echo 'Without the yes/no flags the script asks when run in a terminal.'
+    echo '--yes accepts dependency installs only; --no-deps skips dependency checks and installs.'
 }
 
 while (($#)); do
@@ -51,20 +51,17 @@ while (($#)); do
             xpi="$2"
             shift 2
             ;;
+        --yes|--no-deps) setup_flags+=("$1"); shift ;;
         --dry-run) dry_run=true; shift ;;
         --help|-h) usage; exit 0 ;;
         *) usage >&2; exit 2 ;;
     esac
 done
-if ((${#target_dirs[@]} == 0)); then
-    target_dirs=("$HOME/.mozilla/native-messaging-hosts")
-fi
-
-for tool in yt-dlp ffmpeg; do
-    if ! command -v "$tool" >/dev/null 2>&1; then
-        echo "Warning: $tool was not found in PATH." >&2
-    fi
+for target_dir in "${target_dirs[@]}"; do
+    setup_flags+=(--target-dir "$target_dir")
 done
+if "$dry_run"; then setup_flags+=(--dry-run); fi
+bash "$source_dir/setup.sh" --host-file "$source_dir/ytdlp_host.py" "${setup_flags[@]}"
 
 if [[ -z "$allow_unsigned" ]]; then
     allow_unsigned=no
@@ -94,39 +91,12 @@ if "$dry_run"; then
     if [[ "$install_extension" == yes ]]; then
         printf 'Would open in %s: %s\n' "${browser:-<no browser found>}" "$xpi"
     fi
-    printf 'Would install executable: %s/ytdlp_host.py\n' "$install_dir"
-    for target_dir in "${target_dirs[@]}"; do
-        printf 'Would write manifest: %s/%s.json\n' "$target_dir" "$host_name"
-    done
     if [[ "$allow_unsigned" == yes ]]; then
         python3 "$source_dir/unsigned_pref.py" add "$profiles_ini" --dry-run
     fi
     exit 0
 fi
 
-mkdir -p -- "$install_dir"
-install -m 755 -- "$source_dir/ytdlp_host.py" "$install_dir/ytdlp_host.py"
-for target_dir in "${target_dirs[@]}"; do
-    mkdir -p -- "$target_dir"
-    python3 - "$install_dir/ytdlp_host.py" "$target_dir/$host_name.json" <<'PY'
-import json
-import os
-import sys
-
-manifest = {
-    "name": "dev.firstpick.ytdlp_downloader",
-    "description": "Download videos and audio with yt-dlp from Firefox or Zen",
-    "path": os.path.abspath(sys.argv[1]),
-    "type": "stdio",
-    "allowed_extensions": ["ytdlp-downloader@firstpick.dev"],
-}
-with open(sys.argv[2], "w", encoding="utf-8") as stream:
-    json.dump(manifest, stream, ensure_ascii=False, indent=2)
-    stream.write("\n")
-PY
-    printf 'Installed manifest: %s/%s.json\n' "$target_dir" "$host_name"
-done
-printf 'Installed host: %s/ytdlp_host.py\n' "$install_dir"
 restart_needed=false
 if [[ "$allow_unsigned" == yes ]]; then
     status=0

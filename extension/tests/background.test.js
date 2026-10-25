@@ -62,7 +62,7 @@ function local(value) {
 /** Loads the background page into a fresh context. */
 function boot({ settings } = {}) {
   const storage = settings ? { settings: structuredClone(settings) } : {};
-  const state = { ports: [], menus: [], notifications: [], cleared: [], badge: null, optionsOpened: 0 };
+  const state = { ports: [], menus: [], notifications: [], cleared: [], badge: null, optionsOpened: 0, tabs: [] };
   const browser = {
     runtime: {
       id: EXTENSION_ID,
@@ -74,6 +74,7 @@ function boot({ settings } = {}) {
         return port;
       },
       onMessage: event(),
+      onInstalled: event(),
       sendMessage: async () => {
         throw new Error("Could not establish connection. Receiving end does not exist.");
       },
@@ -105,6 +106,12 @@ function boot({ settings } = {}) {
       },
       onClicked: event(),
       onClosed: event(),
+    },
+    tabs: {
+      create: async (props) => {
+        state.tabs.push(local(props));
+        return { id: state.tabs.length };
+      },
     },
     browserAction: {
       setBadgeText: async ({ text }) => {
@@ -315,8 +322,8 @@ test("missing host: downloads fail with the install hint, next click reconnects"
   await flush();
   const [entry] = (await bg.send({ type: "getState" })).downloads;
   assert.equal(entry.status, "error");
-  assert.match(entry.error, /not installed.*native-host\/install\.sh/);
-  assert.match(bg.state.notifications.at(-1).message, /install\.sh/);
+  assert.match(entry.error, /not installed.*setup page/);
+  assert.match(bg.state.notifications.at(-1).message, /Click to open the setup page/);
   assert.equal(bg.state.badge, "");
 
   bg.click("link:video", { linkUrl: VIDEO });
@@ -344,13 +351,13 @@ test("ping replies with the pong and records host status", async () => {
   const reply = bg.send({ type: "ping" });
   assert.deepEqual(bg.port().posted, [{ type: "ping" }]);
   const pong = {
-    type: "pong", hostVersion: "1.0.0", ytDlp: { found: true, path: "/usr/bin/yt-dlp", version: "2026.10.21" },
+    type: "pong", hostVersion: "1.1.0", ytDlp: { found: true, path: "/usr/bin/yt-dlp", version: "2026.10.21" },
     ffmpeg: { found: true, path: "/usr/bin/ffmpeg" }, defaultSaveDir: "/home/u/Downloads", picker: "zenity",
   };
   bg.port().reply(pong);
   const result = await reply;
   assert.equal(result.ok, true);
-  assert.equal(result.pong.hostVersion, "1.0.0");
+  assert.equal(result.pong.hostVersion, "1.1.0");
   assert.equal((await bg.send({ type: "getState" })).host.reachable, true);
 });
 
@@ -360,7 +367,7 @@ test("ping on a missing host reports the install hint", async () => {
   bg.port().die("No such native application dev.firstpick.ytdlp_downloader");
   const result = await reply;
   assert.equal(result.ok, false);
-  assert.match(result.error, /install\.sh/);
+  assert.match(result.error, /not installed.*setup page/);
   const { host } = await bg.send({ type: "getState" });
   assert.equal(host.reachable, false);
 });
@@ -472,12 +479,13 @@ test("an embedded player's URL is downloaded as the watch URL", async () => {
 
 test("web pages can only send downloadFromPage", async () => {
   const bg = boot();
-  for (const type of ["getState", "ping", "pickDirectory", "cancel", "openFolder", "clearInactive"]) {
+  for (const type of ["getState", "ping", "pickDirectory", "cancel", "openFolder", "clearInactive", "openSetup"]) {
     assert.equal(await bg.send({ type, id: "x", start: "~" }, YOUTUBE_TAB), undefined, type);
   }
   assert.equal(await bg.send({ type: "downloadFromPage", action: "settings", url: VIDEO }, YOUTUBE_TAB), undefined);
   await flush();
   assert.equal(bg.state.ports.length, 0, "nothing reached the native host");
+  assert.equal(bg.state.tabs.length, 0, "no setup tab was opened");
 });
 
 test("downloadFromPage with a non-YouTube URL only shows a notice", async () => {
@@ -486,4 +494,121 @@ test("downloadFromPage with a non-YouTube URL only shows a notice", async () => 
   await flush();
   assert.equal(bg.state.ports.length, 0);
   assert.equal(bg.state.notifications.at(-1).title, "Not a YouTube video");
+});
+
+const SETUP_URL = "moz-extension://test/setup/setup.html";
+
+test("a fresh install opens the setup page; updates do not", async () => {
+  const fresh = boot();
+  fresh.browser.runtime.onInstalled.emit({ reason: "install", temporary: false });
+  await flush();
+  assert.deepEqual(fresh.state.tabs, [{ url: SETUP_URL }]);
+
+  for (const reason of ["update", "browser_update", "shared_module_update"]) {
+    const bg = boot();
+    bg.browser.runtime.onInstalled.emit({ reason, previousVersion: "1.2.1" });
+    await flush();
+    assert.equal(bg.state.tabs.length, 0, reason);
+  }
+});
+
+test("a temporary load does not open the setup page", async () => {
+  const bg = boot();
+  bg.browser.runtime.onInstalled.emit({ reason: "install", temporary: true });
+  await flush();
+  assert.equal(bg.state.tabs.length, 0);
+});
+
+test("extension pages can open the setup page", async () => {
+  const bg = boot();
+  assert.deepEqual(await bg.send({ type: "openSetup" }), { ok: true });
+  assert.deepEqual(bg.state.tabs, [{ url: SETUP_URL }]);
+  assert.equal(bg.state.ports.length, 0, "opening setup does not start the helper");
+});
+
+test("openSetup reports a tab that could not be opened", async () => {
+  const bg = boot();
+  bg.browser.tabs.create = async () => {
+    throw new Error("No window");
+  };
+  assert.deepEqual(await bg.send({ type: "openSetup" }), { ok: false, error: "No window" });
+});
+
+test("clicking the host-unavailable notification opens the setup page", async () => {
+  const bg = boot();
+  bg.click("link:video", { linkUrl: VIDEO });
+  await flush();
+  bg.port().die("No such native application dev.firstpick.ytdlp_downloader");
+  await flush();
+  const notice = bg.state.notifications.at(-1);
+  assert.equal(notice.title, "yt-dlp: native host unavailable");
+  bg.browser.notifications.onClicked.emit(notice.id);
+  await flush();
+  assert.deepEqual(bg.state.tabs, [{ url: SETUP_URL }]);
+  assert.deepEqual(bg.state.cleared, [notice.id]);
+  assert.equal(bg.state.ports.length, 1, "the click does not try the missing host again");
+});
+
+test("a download that cannot be posted at all also leads to setup", async () => {
+  const bg = boot();
+  bg.browser.runtime.connectNative = () => {
+    throw new Error("No such native application dev.firstpick.ytdlp_downloader");
+  };
+  bg.click("link:video", { linkUrl: VIDEO });
+  await flush();
+  const notice = bg.state.notifications.at(-1);
+  assert.match(notice.message, /not installed.*Click to open the setup page/s);
+  bg.browser.notifications.onClicked.emit(notice.id);
+  await flush();
+  assert.deepEqual(bg.state.tabs, [{ url: SETUP_URL }]);
+});
+
+test("a download failing because ffmpeg is missing leads to setup", async () => {
+  const bg = boot();
+  bg.click("link:video", { linkUrl: VIDEO });
+  await flush();
+  const { id } = bg.lastDownload();
+  bg.port().reply({ type: "error", id, code: "ffmpeg_missing", message: "ffmpeg is required." });
+  await flush();
+  const notice = bg.state.notifications.at(-1);
+  assert.equal(notice.title, "Download failed");
+  bg.browser.notifications.onClicked.emit(notice.id);
+  await flush();
+  assert.deepEqual(bg.state.tabs, [{ url: SETUP_URL }]);
+  assert.equal(bg.port().posted.filter((m) => m.type === "openPath").length, 0);
+});
+
+test("other download failures do not open setup when clicked", async () => {
+  const bg = boot();
+  bg.click("link:video", { linkUrl: VIDEO });
+  await flush();
+  const { id } = bg.lastDownload();
+  bg.port().reply({ type: "error", id, code: "ytdlp_failed", message: "ERROR: Video unavailable" });
+  await flush();
+  bg.browser.notifications.onClicked.emit(bg.state.notifications.at(-1).id);
+  await flush();
+  assert.equal(bg.state.tabs.length, 0);
+});
+
+test("ping with reconnect restarts an idle helper but never a busy one", async () => {
+  const bg = boot();
+  const first = bg.send({ type: "ping" });
+  bg.port().reply({ type: "pong", hostVersion: "0.9.0" });
+  await first;
+  const idle = bg.port();
+
+  const second = bg.send({ type: "ping", reconnect: true });
+  assert.equal(idle.dead, true, "the idle port was closed");
+  assert.equal(bg.state.ports.length, 2);
+  bg.port().reply({ type: "pong", hostVersion: "1.1.0" });
+  assert.equal((await second).pong.hostVersion, "1.1.0");
+
+  bg.click("link:video", { linkUrl: VIDEO });
+  await flush();
+  const busy = bg.port();
+  const third = bg.send({ type: "ping", reconnect: true });
+  assert.equal(busy.dead, false, "a running download keeps its port");
+  assert.equal(bg.state.ports.length, 2);
+  busy.reply({ type: "pong", hostVersion: "1.1.0" });
+  assert.equal((await third).ok, true);
 });

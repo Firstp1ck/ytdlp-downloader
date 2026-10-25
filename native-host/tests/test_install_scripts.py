@@ -39,7 +39,8 @@ class InstallScriptTests(unittest.TestCase):
         path.chmod(0o755)
 
     def run_script(self, name, *args):
-        env = {**os.environ, "HOME": str(self.home), "PATH": f"{self.bin}:{os.environ['PATH']}"}
+        env = {**os.environ, "HOME": str(self.home), "PATH": f"{self.bin}:{os.environ['PATH']}",
+               "YTDLP_SETUP_TTY": "/dev/null"}
         if name == "install.sh":
             args = ("--xpi-out", str(self.xpi), "--browser", str(self.bin / "fake-browser"), *args)
         result = subprocess.run(["bash", str(NATIVE_HOST / name), *args], env=env,

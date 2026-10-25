@@ -245,6 +245,10 @@ fieldset.card .toggle {
   color: var(--danger);
 }
 
+.host-details dd .recommended {
+  color: var(--warn);
+}
+
 .install-hint {
   display: grid;
   gap: 8px;

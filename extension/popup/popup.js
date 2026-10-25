@@ -1,12 +1,22 @@
 "use strict";
 
 const { STATUS_LABELS, isActive, formatDetail } = globalThis.YtdlpDownloads;
+const { deriveSetupState, describeToolProblems } = globalThis.YtdlpSetup;
 
 const list = document.getElementById("list");
 const empty = document.getElementById("empty");
 const notice = document.getElementById("notice");
 const clearButton = document.getElementById("clear");
 const template = document.getElementById("item-template");
+const setupBanner = document.getElementById("setup-banner");
+const setupText = document.getElementById("setup-text");
+const setupButton = document.getElementById("open-setup");
+
+const SETUP_BANNERS = Object.freeze({
+  missing: { text: "The helper program isn't installed, so downloads can't start.", button: "Set up the helper" },
+  outdated: { text: "The helper program needs an update.", button: "Update the helper" },
+  tools: { text: "", button: "Finish setup" },
+});
 
 /** id → rendered <li>; rows are updated in place so focus survives progress ticks. */
 const rows = new Map();
@@ -116,6 +126,24 @@ function render(downloads) {
   clearButton.hidden = !downloads.some((entry) => !isActive(entry));
 }
 
+/**
+ * Shows the setup banner for the background's host status, or hides it.
+ * @param {{reachable: boolean | null, error: string | null, pong: object | null} | undefined} host
+ */
+function renderHost(host) {
+  if (!host || host.reachable === null) return;
+  const view = deriveSetupState(host.reachable ? { ok: true, pong: host.pong } : { ok: false, error: host.error });
+  const banner = SETUP_BANNERS[view.state];
+  setupBanner.hidden = !banner;
+  if (!banner) return;
+  setupText.textContent = view.state === "tools" ? `${describeToolProblems(view)}, so downloads fail.` : banner.text;
+  setupButton.textContent = banner.button;
+}
+
+setupButton.addEventListener("click", async () => {
+  if (await command({ type: "openSetup" })) window.close();
+});
+
 document.getElementById("open-settings").addEventListener("click", async () => {
   await browser.runtime.openOptionsPage();
   window.close();
@@ -124,10 +152,18 @@ document.getElementById("open-settings").addEventListener("click", async () => {
 clearButton.addEventListener("click", () => void command({ type: "clearInactive" }));
 
 browser.runtime.onMessage.addListener((message) => {
-  if (message?.type === "state" && Array.isArray(message.downloads)) render(message.downloads);
+  if (message?.type !== "state") return;
+  if (Array.isArray(message.downloads)) render(message.downloads);
+  renderHost(message.host);
 });
 
 (async () => {
   const state = await command({ type: "getState" });
   render(state?.downloads ?? []);
+  renderHost(state?.host);
+  // Nothing has talked to the helper yet, or it was unreachable last time: ask
+  // again so the banner reflects the helper now. The reply arrives as a state broadcast.
+  if (state && state.host?.reachable !== true) {
+    void browser.runtime.sendMessage({ type: "ping" }).catch(() => {});
+  }
 })();

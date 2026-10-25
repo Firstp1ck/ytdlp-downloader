@@ -1,7 +1,7 @@
 name: Release
 
 # Push a tag like v1.2.1 (matching extension/manifest.json) to publish a release
-# with the packaged extension attached. Notes come from CHANGELOG.md.
+# with the packaged extension and setup helper attached. Notes come from CHANGELOG.md.
 on:
   push:
     tags: ["v*"]
@@ -36,6 +36,34 @@ jobs:
           shellcheck native-host/*.sh
       - name: Build extension package
         run: python3 native-host/build_xpi.py extension "dist/ytdlp-downloader-$VERSION.xpi"
+      - name: Bake setup release assets
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import re
+          import shutil
+
+          version = os.environ["VERSION"]
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+              raise SystemExit("Invalid release version")
+          host = Path("native-host/ytdlp_host.py")
+          digest = hashlib.sha256(host.read_bytes()).hexdigest()
+          source = Path("native-host/setup.sh").read_text()
+          for key, value in (("RELEASE_VERSION", version), ("RELEASE_HOST_SHA256", digest)):
+              placeholder = f'{key}=""'
+              replacement = f'{key}="{value}"'
+              if source.splitlines().count(placeholder) != 1:
+                  raise SystemExit(f"Missing or duplicate placeholder: {key}")
+              source = source.replace(placeholder, replacement, 1)
+              if source.splitlines().count(replacement) != 1 or placeholder in source.splitlines():
+                  raise SystemExit(f"Failed to bake {key}")
+          Path("dist/setup.sh").write_text(source)
+          Path("dist/setup.sh").chmod(0o755)
+          shutil.copyfile(host, "dist/ytdlp_host.py")
+          PY
+          bash -n dist/setup.sh
       - name: Release notes from CHANGELOG.md
         run: |
           awk -v v="$VERSION" '
@@ -48,4 +76,4 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "dist/ytdlp-downloader-$VERSION.xpi" --title "$GITHUB_REF_NAME" --notes-file notes.md
+        run: gh release create "$GITHUB_REF_NAME" "dist/ytdlp-downloader-$VERSION.xpi" dist/setup.sh dist/ytdlp_host.py --title "$GITHUB_REF_NAME" --notes-file notes.md

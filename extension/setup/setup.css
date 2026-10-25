@@ -1,0 +1,207 @@
+/* Setup page additions on top of the options page's cards and controls. */
+
+.state-title {
+  font-size: 17px;
+  font-weight: 650;
+}
+
+/* The options page styles card headings as small labels; the setup card's heading is the page's main message. */
+.card h2.state-title {
+  font-size: 17px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--text);
+}
+
+.card h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.checklist {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: var(--radius-small);
+  background: var(--surface-muted);
+  list-style: none;
+}
+
+.checklist li {
+  display: grid;
+  grid-template-columns: 1.5em max-content 1fr;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.check-icon {
+  font-weight: 700;
+  text-align: center;
+  color: var(--muted);
+}
+
+.checklist li[data-status="ok"] .check-icon {
+  color: var(--ok);
+}
+
+.checklist li[data-status="bad"] .check-icon {
+  color: var(--danger);
+}
+
+.checklist li[data-status="warn"] .check-icon {
+  color: var(--warn);
+}
+
+.setup-warning {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 10px 14px;
+  border: 1px solid var(--warn);
+  border-left-width: 4px;
+  border-radius: var(--radius-small);
+  font-size: 13px;
+}
+
+.warning-icon {
+  flex: none;
+  font-weight: 700;
+  color: var(--warn);
+}
+
+.check-label {
+  font-weight: 600;
+}
+
+.check-detail {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.command-block,
+.ready-block {
+  display: grid;
+  gap: 8px;
+}
+
+.command-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.command {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  user-select: all;
+}
+
+.command-row .button {
+  align-self: flex-start;
+  min-height: 38px;
+  min-width: 84px;
+}
+
+.copy-status {
+  font-size: 13px;
+}
+
+.copy-status:empty {
+  display: none;
+}
+
+.copy-status[data-state="ok"] {
+  color: var(--ok);
+}
+
+.copy-status[data-state="error"] {
+  color: var(--danger);
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 13px;
+}
+
+a {
+  color: var(--accent);
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+.error-details {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.error-details summary {
+  cursor: pointer;
+}
+
+.error-details p {
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.ready-block ul {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+.poll-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.card[data-state="ready"] .poll-row {
+  justify-content: flex-end;
+}
+
+.poll-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.spinner {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  visibility: hidden;
+}
+
+.poll-status[data-active="true"] .spinner {
+  visibility: visible;
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.platform-note {
+  padding: 0 4px;
+}

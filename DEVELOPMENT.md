@@ -13,6 +13,8 @@ extension/
   shared/youtube.js        YouTube URL classification and context-menu URL resolution
   shared/downloads.js      download entry state transitions
   shared/theme.css         colours and light/dark tokens
+  shared/setup-info.js     setup command, MIN_HOST_VERSION, deriveSetupState (one source)
+  setup/                   first-run setup page
   content/player-menu.js   adds rows to YouTube's own player menu (content script)
   options/                 settings page
   popup/                   toolbar popup
@@ -20,7 +22,9 @@ extension/
   tests/                   node:test suites (index.js loads all *.test.js)
 native-host/
   ytdlp_host.py            the native messaging host
-  install.sh, uninstall.sh
+  setup.sh                 single source for helper registration, removal, dependency install
+                           (published per release with version + helper SHA-256 baked in)
+  install.sh, uninstall.sh checkout wrappers around setup.sh (+ .xpi build, unsigned pref)
   unsigned_pref.py         adds/removes the marked user.js line (install.sh --allow-unsigned)
   build_xpi.py             packages extension/ into dist/ytdlp-downloader.xpi
   tests/test_ytdlp_host.py stdlib unittest suite for the host
@@ -96,6 +100,32 @@ HOME=$(mktemp -d) ./native-host/install.sh --target-dir "$(mktemp -d)"
   that file. Don't test it in an unmuted automated tab; YouTube autoplays.
 - **yt-dlp output parsing**: the templates are in `PROGRESS_TEMPLATE` and `FILE_TEMPLATE`. Check
   changes against real yt-dlp output, not only the fake. Absent fields must default to `null`.
+
+## Testing the setup script
+
+`native-host/tests/test_setup.py` runs `setup.sh` against fake `sudo`/package managers and a local
+HTTP "release". To try it by hand without touching your real profile:
+
+```sh
+mkdir -p /tmp/rel && sed -e 's/^RELEASE_VERSION=""/RELEASE_VERSION="0.0.0"/' \
+  -e "s/^RELEASE_HOST_SHA256=\"\"/RELEASE_HOST_SHA256=\"$(sha256sum native-host/ytdlp_host.py | cut -d' ' -f1)\"/" \
+  native-host/setup.sh > /tmp/rel/setup.sh && cp native-host/ytdlp_host.py /tmp/rel/
+(cd /tmp/rel && python3 -m http.server 8765 --bind 127.0.0.1) &
+HOME=$(mktemp -d) YTDLP_SETUP_BASE_URL=http://127.0.0.1:8765 \
+  bash -c 'curl -fsSL http://127.0.0.1:8765/setup.sh | bash -s -- --no-deps'
+```
+
+Test-only overrides: `YTDLP_SETUP_BASE_URL` (release download directory), `YTDLP_SETUP_OS_RELEASE`
+(instead of `/etc/os-release`), `YTDLP_SETUP_TTY` (instead of `/dev/tty`).
+
+## Releasing
+
+1. Bump `version` in `extension/manifest.json`, add a `CHANGELOG.md` section, commit.
+2. If the protocol changed incompatibly, bump `HOST_VERSION` in the host and `MIN_HOST_VERSION` in
+   `extension/shared/setup-info.js`.
+3. `git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`. The release workflow checks the tag
+   against the manifest, runs the tests, and publishes `ytdlp-downloader-X.Y.Z.xpi`, the baked
+   `setup.sh`, and `ytdlp_host.py`. The setup page of version X.Y.Z points at exactly these assets.
 
 ## Packaging
 

@@ -18,6 +18,11 @@
 
     <p class="notice" id="notice" role="alert" hidden></p>
 
+    <div class="setup-banner" id="setup-banner" role="status" hidden>
+      <p id="setup-text"></p>
+      <button type="button" class="button primary" id="open-setup">Set up the helper</button>
+    </div>
+
     <div class="empty" id="empty" hidden>
       <p>No downloads yet.</p>
       <p class="muted">Right-click a YouTube video, Short, or link and choose <strong>Download Video</strong>.</p>
@@ -41,6 +46,7 @@
     </template>
 
     <script src="../shared/downloads.js"></script>
+    <script src="../shared/setup-info.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

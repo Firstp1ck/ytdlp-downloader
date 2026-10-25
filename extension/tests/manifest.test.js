@@ -13,6 +13,27 @@ const path = require("node:path");
 
 const ROOT = path.join(__dirname, "..");
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
+// Opened with tabs.create, so it is not referenced by the manifest itself.
+const SETUP_PAGE = "setup/setup.html";
+
+/** @returns {string[]} every extension page */
+function extensionPages() {
+  return [manifest.browser_action.default_popup, manifest.options_ui.page, SETUP_PAGE];
+}
+
+/** @returns {string[]} every extension script outside tests/, extension-relative */
+function extensionScripts() {
+  const found = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = path.posix.join(dir, entry.name);
+      if (entry.isDirectory() && rel !== "tests") walk(rel);
+      else if (entry.isFile() && rel.endsWith(".js")) found.push(rel);
+    }
+  };
+  walk("");
+  return found.sort();
+}
 
 /** @returns {string[]} every extension-relative path the manifest references */
 function manifestPaths() {
@@ -40,7 +61,10 @@ function htmlReferences(page) {
 test("manifest carries the contract IDs and MV2 persistent background", () => {
   assert.equal(manifest.manifest_version, 2);
   assert.equal(manifest.browser_specific_settings.gecko.id, "ytdlp-downloader@firstpick.dev");
-  assert.equal(manifest.browser_specific_settings.gecko.strict_min_version, "128.0");
+  assert.equal(manifest.browser_specific_settings.gecko.strict_min_version, "140.0");
+  // Only for the linter: data_collection_permissions needs Firefox for Android 142.
+  // The add-on is desktop-only (no native messaging on Android); AMO sets that at upload.
+  assert.equal(manifest.browser_specific_settings.gecko_android.strict_min_version, "142.0");
   assert.equal(manifest.background.persistent, true);
   assert.equal(manifest.options_ui.open_in_tab, true);
   assert.deepEqual([...manifest.permissions].sort(), ["menus", "nativeMessaging", "notifications", "storage"]);
@@ -65,16 +89,31 @@ test("every file referenced by the manifest exists", () => {
   }
 });
 
+test("the setup page exists and background.js opens that path", () => {
+  assert.ok(fs.statSync(path.join(ROOT, SETUP_PAGE)).isFile());
+  const source = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
+  assert.match(source, new RegExp(`const SETUP_PAGE = "${SETUP_PAGE.replace(".", "\\.")}";`));
+  assert.equal(manifest.web_accessible_resources, undefined, "no extension page is exposed to websites");
+});
+
 test("every local file referenced by extension pages exists", () => {
-  for (const page of [manifest.browser_action.default_popup, manifest.options_ui.page]) {
+  for (const page of extensionPages()) {
     const refs = htmlReferences(page);
     assert.ok(refs.length > 0, page);
     for (const rel of refs) assert.ok(fs.statSync(path.join(ROOT, rel)).isFile(), `${page} → ${rel}`);
   }
 });
 
+test("pages that use the setup command load the shared setup module first", () => {
+  for (const page of extensionPages()) {
+    const refs = htmlReferences(page).filter((ref) => ref.endsWith(".js"));
+    const shared = refs.indexOf("shared/setup-info.js");
+    assert.ok(shared >= 0 && shared < refs.length - 1, page);
+  }
+});
+
 test("extension pages contain no inline scripts or handlers (MV2 CSP blocks them)", () => {
-  for (const page of [manifest.browser_action.default_popup, manifest.options_ui.page]) {
+  for (const page of extensionPages()) {
     const html = fs.readFileSync(path.join(ROOT, page), "utf8");
     assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)[^>]*>/, page);
     assert.doesNotMatch(html, /\son[a-z]+=/i, page);
@@ -82,7 +121,8 @@ test("extension pages contain no inline scripts or handlers (MV2 CSP blocks them
 });
 
 test("extension scripts never assign innerHTML or use document.write", () => {
-  const files = ["background.js", "popup/popup.js", "options/options.js", "shared/settings.js", "shared/youtube.js", "shared/downloads.js"];
+  const files = extensionScripts();
+  assert.ok(files.includes("setup/setup.js") && files.includes("shared/setup-info.js"), files.join(", "));
   for (const rel of files) {
     const source = fs.readFileSync(path.join(ROOT, rel), "utf8");
     assert.doesNotMatch(source, /\.(innerHTML|outerHTML)\s*=|insertAdjacentHTML|document\.write/, rel);

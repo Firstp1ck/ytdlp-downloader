@@ -42,6 +42,52 @@ and why it is built this way. Usage is in [README.md](README.md); working on the
   options to a yt-dlp argv, runs up to two jobs at once with a FIFO queue, streams progress, and
   publishes finished files.
 
+## Setup flow
+
+```
+install extension ──► runtime.onInstalled(reason "install") ──► setup/setup.html
+                                                                   │ ping every 2.5 s while visible
+user pastes:  curl -fsSL …/releases/download/v<version>/setup.sh | bash
+                 │                                                 │
+                 ├─ python3 present?                               │
+                 ├─ yt-dlp / ffmpeg missing → distro plan → ask (/dev/tty) → sudo <pkg manager>
+                 ├─ download ytdlp_host.py from the same release, check baked SHA-256
+                 └─ install host + write native-messaging manifest ──► next ping: pong ──► "Ready"
+```
+
+- **One source per concern.** `extension/shared/setup-info.js` builds the command from the
+  extension's own manifest version and derives the page state from a ping result
+  (`deriveSetupState`). `native-host/setup.sh` owns host registration, removal, and dependency
+  handling; `install.sh`/`uninstall.sh` (checkout use) delegate to it and add the `.xpi` and
+  unsigned-pref extras.
+- **Pinned and verified.** The release workflow bakes `RELEASE_VERSION` and `RELEASE_HOST_SHA256`
+  into the published `setup.sh`. The script downloads the helper from that same release only and
+  refuses to install it on a checksum mismatch. An unbaked `setup.sh` (from the repo) only works
+  with `--host-file`, never by fetching a moving branch.
+- **Safe to pipe.** Everything runs from `{ main "$@"; }` on the last line, so a download cut off
+  anywhere executes nothing (a cut inside the braces is a syntax error; a bare `main` would have run
+  without its flags). Tests cut the script at every byte of its last 256. Prompts read `/dev/tty` because stdin is the script itself;
+  package managers get the terminal (or `/dev/null`) as stdin, and pacman gets `--noconfirm` only
+  after the user agreed. Without a terminal and without `--yes`, no dependency is installed (the helper still is).
+- **Distros and tools.** Detected from `ID`/`ID_LIKE` in `/etc/os-release` (parsed as data, not
+  sourced). Arch family: `pacman -S --needed yt-dlp ffmpeg deno`. Fedora: `dnf install yt-dlp
+  ffmpeg-free`. openSUSE: `zypper install yt-dlp ffmpeg`. Debian/Ubuntu: `apt-get install ffmpeg`
+  plus yt-dlp's standalone `yt-dlp_linux`/`yt-dlp_linux_aarch64` in `~/.local/bin` (no Python
+  needed; apt's yt-dlp lags behind YouTube). Outside Arch, Deno is the official
+  `deno-<arch>-unknown-linux-gnu.zip`, extracted with Python's `zipfile` to `~/.local/bin`. Only
+  missing tools are installed; anything already on the system is left alone. Downloads come from
+  each project's `releases/latest`, are checked against that release's published SHA-256 list
+  (integrity, not a signature), and are test-run (`--version`). Failures warn and continue: the
+  helper is registered regardless. As root, package managers run without `sudo`. x86_64 and
+  aarch64 only; other architectures get manual instructions.
+- **JavaScript runtime.** The helper looks for `deno`, then `node`, then `bun` (on `PATH`, in
+  `~/.local/bin`, `~/.deno/bin`), passes it explicitly as `--js-runtimes <name>:<path>` (the
+  browser may start the helper with a short `PATH`), and reports it as `pong.jsRuntime`. A missing
+  runtime is a warning on the setup page, not a blocker.
+- **Helper version.** `MIN_HOST_VERSION` in `setup-info.js`; an older `pong.hostVersion` makes the
+  setup page ask for an update with the same command. `ping` with `reconnect: true` drops an idle
+  port first, so an updated helper is picked up without a browser restart.
+
 ## Design decisions
 
 | Decision | Why |
@@ -62,6 +108,25 @@ Framing is the standard WebExtension one: a uint32 length in native byte order, 
 stdin/stdout. The host writes nothing else to stdout; logs go to stderr (the Browser Console shows
 them). Inbound frames are capped at 1 MiB. A malformed frame gets a `bad_request` and the host
 closes, because the next frame boundary can't be trusted.
+
+### Extension pages → background page
+
+Only the extension's own pages (`moz-extension://…`) may send these; web pages and the YouTube
+content script may only send `downloadFromPage`.
+
+```jsonc
+{"type": "getState"}                       // download list + host status (popup)
+{"type": "ping", "reconnect": true}        // host pong; reconnect drops an idle port first, so an
+                                           // updated helper is used without a browser restart
+                                           // (never while downloads or dialogs are active)
+{"type": "pickDirectory", "start": "~/Videos"}
+{"type": "cancel", "id": "<uuid>"}
+{"type": "openFolder", "id": "<uuid>"}
+{"type": "clearInactive"}
+{"type": "openSetup"}                      // opens setup/setup.html
+// from the YouTube content script only:
+{"type": "downloadFromPage", "action": "video" | "audio", "url": "<page URL>"}
+```
 
 ### Extension → host
 
@@ -86,9 +151,10 @@ Missing option keys get host defaults; unknown keys and invalid values are rejec
 ### Host → extension
 
 ```jsonc
-{"type": "pong", "hostVersion": "1.0.0",
- "ytDlp": {"found": true, "path": "/usr/bin/yt-dlp", "version": "2026.10.21"},
+{"type": "pong", "hostVersion": "1.1.0",
+ "ytDlp": {"found": true, "path": "/usr/bin/yt-dlp", "version": "2026.10.21"},  // version null = doesn't run
  "ffmpeg": {"found": true, "path": "/usr/bin/ffmpeg"},
+ "jsRuntime": {"name": "deno" | "node" | "bun", "path": "/usr/bin/deno"} | null,   // since 1.1.0
  "defaultSaveDir": "/home/u/Downloads", "picker": "zenity" | "kdialog" | "yad" | null}
 {"type": "queued",    "id": "..."}                          // both slots busy
 {"type": "started",   "id": "...", "saveDir": "/abs"}
@@ -134,6 +200,7 @@ yt-dlp --ignore-config --newline --progress --color never --no-simulate
        --progress-template "postprocess:__YTDLP_PROGRESS__{…}"
        --print "after_move:__YTDLP_FILE__%(filepath)j"
        --yes-playlist | --no-playlist
+       [--js-runtimes deno:/usr/bin/deno]                   # first of deno/node/bun found, if any
        <mode args> -- <url>
 ```
 
@@ -173,6 +240,10 @@ host. Web pages can't talk to it. Inside that boundary:
   `openPath` only opens existing directories, because `xdg-open` on a `.desktop` file may run it.
 - **DOM**: titles and URLs come from the network and are only written with `textContent`. A test
   rejects `innerHTML`, inline scripts, and inline handlers in the extension.
+- **Setup script**: see [Setup flow](#setup-flow): pinned release URL, SHA-256-verified helper,
+  consent before any `sudo`, guard against truncated downloads. Standalone yt-dlp and Deno come
+  from those projects' `releases/latest` (not pinned, by design: yt-dlp has to keep up with
+  YouTube) and are checked against their published SHA-256 lists.
 - **Permissions**: `menus`, `nativeMessaging`, `storage`, `notifications`, plus the content script
   on YouTube player pages (shown at install as access to youtube.com). No other host access.
 - **Messages from web pages**: content scripts share the extension id, so the background page

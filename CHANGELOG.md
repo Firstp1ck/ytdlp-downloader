@@ -2,6 +2,27 @@
 
 All notable changes to this project. Versions match `extension/manifest.json`.
 
+## [1.3.0] - 2026-10-25
+
+### Added
+
+- One-command setup: `curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.0/setup.sh | bash`
+  installs the helper (checksum-verified, pinned to the release) and offers to install yt-dlp,
+  ffmpeg, and Deno (pacman, dnf, zypper, apt, or checksum-verified official builds in `~/.local/bin`).
+- JavaScript runtime support: the helper passes Deno (or Node/Bun) to yt-dlp explicitly, which
+  YouTube needs; the setup page warns when none is installed.
+- Setup page that opens after installing the extension: shows what's missing, the command with a
+  Copy button, and switches to "Ready" by itself once the helper answers.
+- "Open setup" in the settings page and the toolbar popup; the "helper unavailable" notification
+  leads there too.
+
+### Changed
+
+- Requires Firefox 140 or newer (Zen is on 158).
+- Helper version 1.1.0: the setup page asks you to update an older helper (same command).
+- The setup page reports a yt-dlp that is installed but doesn't run instead of showing "Ready".
+- `install.sh` and `uninstall.sh` use the same setup script internally.
+
 ## [1.2.1] - 2026-10-25
 
 First public release.
@@ -20,4 +41,5 @@ First public release.
 - `native-host/install.sh`: registers the host, builds and opens the `.xpi`, and can opt in to
   unsigned add-ons through `user.js`. `uninstall.sh` reverses it.
 
+[1.3.0]: https://github.com/Firstp1ck/ytdlp-downloader/releases/tag/v1.3.0
 [1.2.1]: https://github.com/Firstp1ck/ytdlp-downloader/releases/tag/v1.2.1

@@ -1,19 +1,22 @@
 {
   "manifest_version": 2,
   "name": "yt-dlp Downloader",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "description": "Right-click a YouTube video, Short, or playlist, or use YouTube's player menu, and download it with yt-dlp through a local native messaging host.",
   "author": "Firstp1ck",
   "homepage_url": "https://github.com/Firstp1ck/ytdlp-downloader",
   "browser_specific_settings": {
     "gecko": {
       "id": "ytdlp-downloader@firstpick.dev",
-      "strict_min_version": "128.0",
+      "strict_min_version": "140.0",
       "data_collection_permissions": {
         "required": [
           "none"
         ]
       }
+    },
+    "gecko_android": {
+      "strict_min_version": "142.0"
     }
   },
   "icons": {

@@ -122,19 +122,22 @@
           <dd id="host-ytdlp"></dd>
           <dt>ffmpeg</dt>
           <dd id="host-ffmpeg"></dd>
+          <dt>JavaScript runtime</dt>
+          <dd id="host-jsruntime"></dd>
           <dt>Folder picker</dt>
           <dd id="host-picker"></dd>
           <dt>Default folder</dt>
           <dd id="host-default-dir"></dd>
         </dl>
         <div class="install-hint" id="host-install-hint" hidden>
-          <p>Install the native host from the project folder, restart the browser, then press Retry:</p>
-          <pre><code>./native-host/install.sh</code></pre>
+          <p id="host-install-text"></p>
+          <p><button type="button" class="button primary" id="open-setup" aria-describedby="host-install-text">Open setup</button></p>
         </div>
       </section>
     </main>
 
     <script src="../shared/settings.js"></script>
+    <script src="../shared/setup-info.js"></script>
     <script src="options.js"></script>
   </body>
 </html>

@@ -114,3 +114,15 @@ body {
   flex-direction: column;
   gap: 4px;
 }
+
+.setup-banner {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 13px;
+}

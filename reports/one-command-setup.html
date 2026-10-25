@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>ytdlp-downloader 1.3.0: one-command setup, build report</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1220; --panel:#121c2d; --panel-2:#18253a; --text:#e8eef8; --muted:#a9b7cb; --line:#2b3b55; --green:#50d890; --yellow:#f7c65c; --red:#ff7373; --blue:#65b5ff; --code:#07101c; }
+    * { box-sizing: border-box; }
+    body { margin:0; background: radial-gradient(circle at 15% 0%, #142848 0, transparent 35rem), var(--bg); color:var(--text); font:16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    a { color:var(--blue); }
+    a:focus-visible { outline:3px solid var(--blue); outline-offset:3px; }
+    .skip-link { position:fixed; top:8px; left:8px; transform:translateY(-160%); background:var(--blue); color:#06111f; padding:8px 12px; border-radius:8px; font-weight:800; }
+    .skip-link:focus { transform:none; }
+    main { width:min(1120px, calc(100% - 32px)); margin:36px auto 64px; }
+    header, .report-section { background:color-mix(in srgb, var(--panel) 94%, transparent); border:1px solid var(--line); border-radius:16px; box-shadow:0 14px 36px rgb(0 0 0 / 22%); }
+    header { padding:30px; margin-bottom:20px; }
+    .report-section { padding:24px; margin:18px 0; }
+    h1 { font-size:clamp(1.8rem, 5vw, 2.7rem); margin:0 0 8px; letter-spacing:-.02em; line-height:1.2; }
+    h2 { font-size:1.4rem; border-bottom:1px solid var(--line); padding-bottom:10px; margin-top:0; }
+    h3 { font-size:1.05rem; margin:20px 0 6px; }
+    code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; background:var(--code); padding:.1em .35em; border-radius:5px; }
+    .muted { color:var(--muted); }
+    .lead { font-size:1.08rem; max-width:82ch; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px,1fr)); gap:14px; margin-top:18px; }
+    .metric { background:var(--panel-2); border:1px solid var(--line); border-radius:12px; padding:14px; }
+    .metric strong { display:block; font-size:1.3rem; }
+    .badge { display:inline-block; padding:2px 9px; border-radius:999px; font-size:.76rem; font-weight:750; white-space:nowrap; }
+    .ok { background:rgb(80 216 144 / 15%); color:var(--green); border:1px solid rgb(80 216 144 / 40%); }
+    .warn { background:rgb(247 198 92 / 14%); color:var(--yellow); border:1px solid rgb(247 198 92 / 40%); }
+    .bad { background:rgb(255 115 115 / 14%); color:var(--red); border:1px solid rgb(255 115 115 / 40%); }
+    .info { background:rgb(101 181 255 / 14%); color:var(--blue); border:1px solid rgb(101 181 255 / 40%); }
+    .table-wrap { overflow-x:auto; }
+    table { width:100%; border-collapse:collapse; font-size:.93rem; }
+    th, td { text-align:left; vertical-align:top; padding:8px 10px; border-bottom:1px solid var(--line); }
+    th { color:var(--muted); background:var(--panel-2); }
+    figure { margin:0; background:var(--panel-2); border:1px solid var(--line); border-radius:12px; padding:16px; }
+    figcaption { color:var(--muted); font-size:.9rem; margin-top:8px; }
+    nav.toc { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+    nav.toc a { border:1px solid var(--line); border-radius:999px; padding:4px 12px; text-decoration:none; background:var(--panel-2); font-size:.9rem; }
+    @media (max-width:640px) { header, .report-section { padding:18px; } th, td { padding:6px; } }
+    @media print { body { background:#fff; color:#000; } header, .report-section, figure { box-shadow:none; background:#fff; border-color:#999; } nav.toc, .skip-link { display:none; } th { background:#eee; color:#000; } code { background:#f3f3f3; color:#000; } a { color:#000; } }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<main id="content">
+  <header>
+    <p class="muted">Build report · 2026-10-25 · plan <code>plans/planned/one-command-setup.md</code> (archived locally, git-ignored)</p>
+    <h1>One-command setup (v1.3.0)</h1>
+    <p class="lead">After installing the extension, a setup page opens and shows one command. It installs the helper (pinned to the release, checksum-verified), offers to install yt-dlp, ffmpeg and Deno, and the page turns green by itself. Two independent reviews found three medium issues in the first version: a cut-off download could run without flags, a broken yt-dlp showed "Ready", and no JavaScript runtime was set up. All three were fixed and re-verified. What remains unverified is live-browser behaviour and real package-manager runs.</p>
+    <div class="grid">
+      <div class="metric"><span class="muted">Extension tests</span><strong>131 / 131</strong><span class="badge ok">pass</span></div>
+      <div class="metric"><span class="muted">Helper + installer tests</span><strong>all pass</strong><span class="badge ok">pass</span></div>
+      <div class="metric"><span class="muted">web-ext lint</span><strong>0 / 0</strong><span class="badge ok">errors / warnings</span></div>
+      <div class="metric"><span class="muted">Review findings</span><strong>15</strong><span class="badge info">14 fixed · 1 kept</span></div>
+    </div>
+    <nav class="toc" aria-label="Sections"><a href="#overview">Overview</a><a href="#flow">Flow</a><a href="#evidence">Evidence</a><a href="#review">Review</a><a href="#risks">Risks &amp; next</a></nav>
+  </header>
+
+  <section class="report-section" id="overview" aria-labelledby="ov-h">
+    <h2 id="ov-h">Overview</h2>
+    <div class="table-wrap"><table data-overview>
+      <thead><tr><th>Area</th><th>Outcome</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Installer (WS-A)</td><td><code>native-host/setup.sh</code> is the single source for helper registration, removal and dependencies. <code>install.sh</code>/<code>uninstall.sh</code> delegate to it. Built by Codex gpt-6.1-sol (2 rounds).</td><td><span class="badge ok">done</span></td></tr>
+        <tr><td>Release pipeline</td><td>The tag build bakes version and helper SHA-256 into <code>setup.sh</code> and publishes <code>setup.sh</code>, <code>ytdlp_host.py</code> and the <code>.xpi</code>.</td><td><span class="badge ok">done</span></td></tr>
+        <tr><td>Extension (WS-B)</td><td>Setup page with checklist (helper, yt-dlp, ffmpeg, JS runtime), copy, auto-check, first-install only. Entry points in settings, popup and notifications. Built by Claude Opus 5.5 (2 rounds).</td><td><span class="badge ok">done</span></td></tr>
+        <tr><td>Helper 1.1.0</td><td>Finds Deno/Node/Bun and passes it to yt-dlp explicitly; reports it in <code>pong.jsRuntime</code>.</td><td><span class="badge ok">done</span></td></tr>
+        <tr><td>Docs</td><td>README install rewrite with distro table, TECHNICAL setup flow and security, DEVELOPMENT testing and releasing, CHANGELOG, <code>docs/AMO.md</code>.</td><td><span class="badge ok">done</span></td></tr>
+        <tr><td>Live browser check</td><td>Tab on install, clipboard, flip to Ready in a real Zen.</td><td><span class="badge warn">not run</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="report-section" id="flow" aria-labelledby="flow-h">
+    <h2 id="flow-h">Setup flow</h2>
+    <figure data-visual-kind="diagram" data-purpose="Show the path from installing the extension to a working setup">
+      <svg viewBox="0 0 900 230" width="100%" role="img" aria-labelledby="f-t f-d">
+        <title id="f-t">Setup flow</title>
+        <desc id="f-d">Installing the extension opens the setup page. The user pastes the command; setup.sh checks dependencies, asks, installs, downloads and verifies the helper, and registers it. The page's next check gets a pong and turns Ready.</desc>
+        <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#65b5ff"/></marker></defs>
+        <g font-family="system-ui, sans-serif" font-size="13" fill="#e8eef8" text-anchor="middle">
+          <rect x="10" y="20" width="150" height="56" rx="10" fill="#18253a" stroke="#2b3b55"/><text x="85" y="44">Install extension</text><text x="85" y="62" fill="#a9b7cb" font-size="11">onInstalled: install</text>
+          <rect x="200" y="20" width="160" height="56" rx="10" fill="#18253a" stroke="#65b5ff"/><text x="280" y="44">Setup page</text><text x="280" y="62" fill="#a9b7cb" font-size="11">checklist + command</text>
+          <rect x="400" y="20" width="170" height="56" rx="10" fill="#18253a" stroke="#2b3b55"/><text x="485" y="44">curl … | bash</text><text x="485" y="62" fill="#a9b7cb" font-size="11">user pastes once</text>
+          <rect x="400" y="130" width="170" height="80" rx="10" fill="#18253a" stroke="#2b3b55"/><text x="485" y="152">setup.sh</text><text x="485" y="170" fill="#a9b7cb" font-size="11">deps: ask → pkg manager</text><text x="485" y="186" fill="#a9b7cb" font-size="11">helper: download + SHA-256</text><text x="485" y="202" fill="#a9b7cb" font-size="11">register manifest</text>
+          <rect x="620" y="130" width="130" height="56" rx="10" fill="#18253a" stroke="#50d890"/><text x="685" y="154">Helper 1.1.0</text><text x="685" y="172" fill="#a9b7cb" font-size="11">pong + jsRuntime</text>
+          <rect x="740" y="20" width="150" height="56" rx="10" fill="#18253a" stroke="#50d890"/><text x="815" y="44">Ready ✓</text><text x="815" y="62" fill="#a9b7cb" font-size="11">no restart</text>
+        </g>
+        <g stroke="#65b5ff" stroke-width="2" fill="none" marker-end="url(#a)">
+          <line x1="160" y1="48" x2="196" y2="48"/><line x1="360" y1="48" x2="396" y2="48"/><line x1="485" y1="76" x2="485" y2="126"/><line x1="570" y1="160" x2="616" y2="160"/><path d="M750 150 Q 815 140 815 80"/><path d="M280 76 Q 300 170 396 175" stroke-dasharray="5 4"/>
+        </g>
+        <text x="300" y="200" fill="#a9b7cb" font-size="11" font-family="system-ui, sans-serif">checks every 2.5 s while visible</text>
+      </svg>
+      <figcaption>Pinned per release: the page of version X.Y.Z shows <code>…/releases/download/vX.Y.Z/setup.sh</code>, which only installs the helper from that same release.</figcaption>
+    </figure>
+  </section>
+
+  <section class="report-section" id="evidence" aria-labelledby="ev-h">
+    <h2 id="ev-h">Testing and acceptance evidence</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Check</th><th>Result</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Extension suite</td><td>131 tests: setup states, version boundary, broken yt-dlp, JS runtime row, onInstalled (temporary skipped), openSetup sender restriction, notification routing, DOM hygiene</td><td><span class="badge ok">pass</span></td></tr>
+        <tr><td>Helper and installer suite</td><td>Local HTTP release piped into bash; tamper rejection; distro plans with fake package managers; consent, no terminal, POSIX <code>sh</code>; failing <code>sudo</code> still registers; root without sudo; every byte cut of the last 256 bytes runs nothing</td><td><span class="badge ok">pass</span></td></tr>
+        <tr><td>End to end</td><td>The workflow's own build and bake steps, then the extension's command against a local server: helper installed and byte-identical; tampered helper rejected, nothing registered; cut after <code>{ main "$</code> exits 2 with zero files</td><td><span class="badge ok">pass</span></td></tr>
+        <tr><td>Real helper over the protocol</td><td><code>hostVersion 1.1.0</code>, yt-dlp 2026.10.21, ffmpeg, <code>jsRuntime deno:/usr/bin/deno</code>; real yt-dlp accepted <code>--js-runtimes</code></td><td><span class="badge ok">pass</span></td></tr>
+        <tr><td>Linter / shellcheck</td><td>web-ext lint 0 errors, 0 warnings; shellcheck clean</td><td><span class="badge ok">pass</span></td></tr>
+        <tr><td>Live browser</td><td>Setup tab on install, clipboard, automatic flip to Ready</td><td><span class="badge warn">not run</span></td></tr>
+        <tr><td>Real package managers and downloads</td><td>Real <code>sudo pacman/dnf/zypper/apt</code> runs and installing the standalone yt-dlp/Deno builds onto a system (URLs and checksum formats were checked live, nothing installed)</td><td><span class="badge warn">not run</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="report-section" id="review" aria-labelledby="rv-h">
+    <h2 id="rv-h">Independent review findings</h2>
+    <p class="muted">R1 = Claude Fable 5.1, R2 = Codex gpt-6-astra, both read-only with fresh context. Each finding was re-checked before disposition; R2-3 was confirmed with local <code>yt-dlp -v</code> ("Solving JS challenges using deno").</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Severity</th><th>Finding</th><th>Disposition</th></tr></thead>
+      <tbody>
+        <tr><td>R2-1</td><td><span class="badge bad">medium</span></td><td>Cut inside <code>main "$@"</code> left a bare <code>main</code> that ran without flags</td><td>Fixed: <code>{ main "$@"; }</code>, byte-cut tests</td></tr>
+        <tr><td>R2-2</td><td><span class="badge bad">medium</span></td><td>Debian yt-dlp needs Python ≥ 3.10; "Ready" shown with a non-running yt-dlp</td><td>Fixed: standalone build, <code>--version</code> probe, new "doesn't run" state</td></tr>
+        <tr><td>R2-3</td><td><span class="badge bad">medium</span></td><td>No JavaScript runtime for YouTube</td><td>Fixed: Deno offered; helper passes Deno/Node/Bun explicitly and reports it</td></tr>
+        <tr><td>R1-1</td><td><span class="badge bad">medium</span></td><td>Failing <code>sudo</code> aborted before the helper was installed</td><td>Fixed: warn and continue; no sudo as root</td></tr>
+        <tr><td>R1-2, R1-3, R2-4</td><td><span class="badge info">low</span></td><td>Unverified yt-dlp binary; <code>| sh</code> silent death; version grammar mismatch</td><td>Fixed: checksum lists, guarded tty probe, X.Y.Z everywhere</td></tr>
+        <tr><td>R2-5, R1-4, R1-5, R1-7</td><td><span class="badge info">low</span></td><td>Docs: write scope, unpinned link, missing messages, wrong notification name</td><td>Fixed in docs</td></tr>
+        <tr><td>R1-6, R1-9</td><td><span class="badge info">nit</span></td><td>Uninstall needed Python; temporary loads opened setup</td><td>Fixed</td></tr>
+        <tr><td>R1-8</td><td><span class="badge info">nit</span></td><td>Reconnect on each check while outdated</td><td>Kept: it's what lets an updated helper show up while the page is open</td></tr>
+        <tr><td>Owner</td><td><span class="badge info">low</span></td><td>"Run again" can't repair an existing broken yt-dlp (setup only installs absent tools)</td><td>Fixed wording: update it, or remove it and run again</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="report-section" id="risks" aria-labelledby="rk-h">
+    <h2 id="rk-h">Residual risks and next steps</h2>
+    <ul>
+      <li><strong>Publish v1.3.0 first.</strong> The setup command's URL only works once the v1.3.0 release with its <code>setup.sh</code> and <code>ytdlp_host.py</code> assets exists.</li>
+      <li><strong>Live browser:</strong> install the new <code>.xpi</code> in Zen and confirm the setup tab, Copy and the automatic Ready.</li>
+      <li><strong>Upstream "latest":</strong> standalone yt-dlp and Deno are deliberately unpinned. Checksums protect integrity against the project's own list, not authenticity.</li>
+      <li><strong>Distro coverage:</strong> package names were set per distro and tested with fakes only; Fedora's yt-dlp/ffmpeg-free and openSUSE's names are the least certain.</li>
+      <li><strong>Existing users</strong> on helper 1.0.0 see "Update the helper" after the update (same command).</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>
