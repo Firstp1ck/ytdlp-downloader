@@ -18,6 +18,7 @@ All notable changes to this project. Versions match `extension/manifest.json`.
 - The settings page's "Helper program" card (formerly "Native host") has a **Setup page** button;
   the popup shows "Set up the helper" when it's missing, and the "native host unavailable"
   notification leads there too.
+- Setup and settings page headers show the installed extension version.
 
 ### Changed
 

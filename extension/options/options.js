@@ -295,6 +295,8 @@ async function checkHost() {
   }
 }
 
+document.getElementById("extension-version").textContent = `v${browser.runtime.getManifest().version}`;
+
 retryButton.addEventListener("click", () => void checkHost());
 
 async function openSetupPage() {

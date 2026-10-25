@@ -153,3 +153,13 @@ test("the settings page always offers the setup page, not only when something is
   assert.doesNotMatch(button[0], /\bhidden\b/, "it is not hidden by default");
   assert.match(js, /getElementById\("show-setup"\)\.addEventListener\("click"/);
 });
+
+test("setup and settings pages both show the installed extension version", () => {
+  for (const page of ["setup/setup", "options/options"]) {
+    const html = fs.readFileSync(path.join(ROOT, `${page}.html`), "utf8");
+    const js = fs.readFileSync(path.join(ROOT, `${page}.js`), "utf8");
+    assert.match(html, /<span class="version-tag" id="extension-version"><\/span>/, page);
+    assert.match(html, /shared\/theme\.css/, `${page} loads the shared version-tag style`);
+    assert.match(js, /getElementById\("extension-version"\)\.textContent = `v\$\{/, page);
+  }
+});
