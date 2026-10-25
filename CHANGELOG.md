@@ -26,6 +26,9 @@ All notable changes to this project. Versions match `extension/manifest.json`.
 - The setup page reports a yt-dlp that is installed but doesn't run instead of showing "Ready".
 - `install.sh` and `uninstall.sh` use the same setup script internally.
 - Debian/Ubuntu: `apt-get update` runs before installing ffmpeg.
+- The helper is also registered for LibreWolf (`~/.librewolf`), and for Waterfox/Floorp folders if
+  present. Setup warns about Flatpak/Snap browsers and checks for `xdg-native-messaging-proxy`
+  instead of calling them unsupported.
 
 ## [1.2.1] - 2026-10-25
 

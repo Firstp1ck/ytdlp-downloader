@@ -8,7 +8,8 @@ profiles_ini="$HOME/.zen/profiles.ini"
 
 usage() {
     echo "Usage: $0 [--target-dir DIR ...] [--profiles-ini FILE] [--dry-run]"
-    echo 'Explicit target directories replace the default ~/.mozilla/native-messaging-hosts.'
+    echo 'Explicit target directories replace the defaults: ~/.mozilla/native-messaging-hosts, plus'
+    echo 'native-messaging-hosts in ~/.librewolf, ~/.waterfox and ~/.floorp when those folders exist.'
     echo 'Also removes the user.js line written by install.sh --allow-unsigned.'
 }
 

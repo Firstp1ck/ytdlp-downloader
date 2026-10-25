@@ -32,9 +32,11 @@ usage() {
     cat <<'HELP'
 Usage: setup.sh [--host-file PATH] [--target-dir DIR ...] [--yes] [--no-deps]
                 [--uninstall] [--dry-run] [--help]
-Registers the helper for Firefox and Zen. Explicit target directories replace
-~/.mozilla/native-messaging-hosts. --yes accepts dependency installs; --no-deps
-skips them. --uninstall removes only the helper and its manifests.
+Registers the helper for Firefox, Zen and other Firefox-based browsers in
+~/.mozilla/native-messaging-hosts, plus ~/.librewolf, ~/.waterfox and ~/.floorp
+when those folders exist; explicit --target-dir values replace these defaults.
+--yes accepts dependency installs; --no-deps skips them. --uninstall removes only
+the helper and its manifests. Warns about Flatpak/Snap browsers it finds.
 Test overrides: YTDLP_SETUP_BASE_URL replaces the release download directory;
 YTDLP_SETUP_OS_RELEASE replaces /etc/os-release; YTDLP_SETUP_TTY replaces /dev/tty.
 Test-only: YTDLP_SETUP_TEST_EUID overrides the root check (never grants privileges).
@@ -45,6 +47,62 @@ fail() { printf '✗ %s\n' "$*" >&2; exit 1; }
 cleanup() { if [[ -n "$temp_dir" ]]; then rm -rf -- "$temp_dir"; fi; }
 trap cleanup EXIT
 
+
+default_target_dirs() {
+    # Firefox, Zen and most forks read ~/.mozilla; LibreWolf reads ~/.librewolf
+    # (Waterfox/Floorp are unverified). Registering in an existing fork's folder
+    # is harmless when it isn't read.
+    local fork
+    target_dirs=("$HOME/.mozilla/native-messaging-hosts")
+    for fork in .librewolf .waterfox .floorp; do
+        if [[ -d "$HOME/$fork" ]]; then target_dirs+=("$HOME/$fork/native-messaging-hosts"); fi
+    done
+}
+
+sandboxed_browsers() {
+    # Print "Name (Flatpak|Snap)" for Firefox-based browsers installed sandboxed.
+    local id name
+    if command -v flatpak >/dev/null 2>&1; then
+        while IFS=$'\t' read -r id name; do
+            if [[ "$id $name" =~ [Ff]irefox|[Zz]en|[Ll]ibre[Ww]olf|[Ff]loorp|[Ww]aterfox ]]; then
+                printf '%s (Flatpak)\n' "${name:-$id}"
+            fi
+        done < <(flatpak list --app --columns=application,name 2>/dev/null || true)
+    fi
+    if command -v snap >/dev/null 2>&1; then
+        while read -r name _; do
+            case "$name" in
+                firefox|librewolf|floorp|waterfox|zen-browser) printf '%s (Snap)\n' "$name" ;;
+            esac
+        done < <(snap list 2>/dev/null || true)
+    fi
+}
+
+has_native_messaging_proxy() {
+    local candidate
+    for candidate in /usr/libexec/xdg-native-messaging-proxy /usr/lib/xdg-native-messaging-proxy \
+                     /usr/lib/xdg-native-messaging-proxy/xdg-native-messaging-proxy; do
+        if [[ -x "$candidate" ]]; then return 0; fi
+    done
+    command -v xdg-native-messaging-proxy >/dev/null 2>&1
+}
+
+check_sandboxed_browsers() {
+    # The setup page can't do this check: a sandboxed browser that can't reach
+    # the helper can't report anything either. This script runs on the host.
+    local browsers line
+    browsers=$(sandboxed_browsers)
+    [[ -n "$browsers" ]] || return 0
+    while IFS= read -r line; do printf '⚠ Sandboxed browser found: %s\n' "$line"; done <<<"$browsers"
+    echo '  Flatpak/Snap browsers can only start the helper through xdg-native-messaging-proxy'
+    echo '  (browsers based on Firefox 157 or newer). Snap Firefox may use its portal instead.'
+    if has_native_messaging_proxy; then
+        echo '  ✓ xdg-native-messaging-proxy is installed. If the setup page stays red, use a non-sandboxed build.'
+    else
+        echo '  ✗ xdg-native-messaging-proxy is not installed. Install it from your package manager if available,'
+        echo '    or use a non-sandboxed build of the browser (distro package, tarball or AppImage).'
+    fi
+}
 
 remove_host() {
     local target_dir
@@ -403,7 +461,7 @@ parse_args() {
             *) usage >&2; exit 2 ;;
         esac
     done
-    if ((${#target_dirs[@]} == 0)); then target_dirs=("$HOME/.mozilla/native-messaging-hosts"); fi
+    if ((${#target_dirs[@]} == 0)); then default_target_dirs; fi
 }
 
 main() {
@@ -411,6 +469,7 @@ main() {
     if "$uninstall"; then remove_host; exit 0; fi
     command -v python3 >/dev/null 2>&1 || fail 'Python 3 is required. Install python3 with your distribution package manager, then run setup again.'
     echo '✓ Python 3 found.'
+    check_sandboxed_browsers
     if ! "$no_deps"; then check_dependencies; fi
     obtain_host
     register_host

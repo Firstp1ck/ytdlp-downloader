@@ -64,11 +64,24 @@ happen, and `--uninstall` removes the helper.
 
 ### Requirements
 
-- Linux, with Firefox (140+) or Zen installed natively (not Flatpak or Snap: their sandbox doesn't
-  let the browser start the helper)
+- Linux, with a Firefox-based browser (Firefox 140+, Zen, LibreWolf, …), preferably installed
+  natively (see [Browsers](#browsers))
 - Python 3.8+ for the helper (preinstalled on practically every distro)
 - yt-dlp, ffmpeg, and a JavaScript runtime (Deno, or Node 22+); the setup command can install them
 - Optional: `zenity`, `kdialog`, or `yad` for the **Browse…** folder picker
+
+### Browsers
+
+| Browser | Status |
+|---|---|
+| Zen (distro package, tarball, AppImage) | tested |
+| Firefox 140+ (release, ESR, Developer Edition, Nightly) | expected to work: same helper folder (`~/.mozilla`) |
+| LibreWolf | expected to work: setup also registers the helper in `~/.librewolf` when that folder exists |
+| Waterfox, Floorp | expected to work: setup also registers in `~/.waterfox` / `~/.floorp` if present (their exact folder is unverified) |
+| Flatpak or Snap builds of any of these | only under conditions: they reach the helper through `xdg-native-messaging-proxy` (browsers based on Firefox 157+, plus the proxy service on your system); Snap Firefox may use its portal. **The setup command checks for sandboxed browsers and tells you what applies.** If it doesn't work, use a non-sandboxed build. |
+
+Before the extension is on addons.mozilla.org, browsers that enforce add-on signing need the
+unsigned-add-on setting below.
 
 ### From a git checkout
 
@@ -166,7 +179,8 @@ the add-on in `about:addons`.
 
 - **"yt-dlp: native host unavailable" / setup page stays red**: run the setup command again and read its
   output. Check that `~/.mozilla/native-messaging-hosts/dev.firstpick.ytdlp_downloader.json` exists
-  and its `path` points to an executable file. Flatpak/Snap browsers can't start it.
+  and its `path` points to an executable file. For Flatpak/Snap browsers, read the setup command's
+  "Sandboxed browser found" note.
 - **Downloads fail after a YouTube change**: update yt-dlp (your package manager, or `yt-dlp -U` for
   the build in `~/.local/bin`).
 - **Setup page says yt-dlp "doesn't run"**: the installed yt-dlp fails `yt-dlp --version`, usually

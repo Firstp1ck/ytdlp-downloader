@@ -264,7 +264,14 @@ host. Web pages can't talk to it. Inside that boundary:
 
 ## Known limits
 
-- Linux only. Flatpak/Snap browsers need the native-messaging portal, which isn't supported.
+- Linux only. Flatpak/Snap browsers can only start the helper through `xdg-native-messaging-proxy`
+  (Firefox 157+, [bug 1955255](https://bugzilla.mozilla.org/show_bug.cgi?id=1955255); the proxy
+  service must be installed on the host) or, for Snap Firefox, its WebExtensions portal. `setup.sh`
+  detects sandboxed Firefox-based browsers (`flatpak list`, `snap list`) and reports whether the
+  proxy is installed. This hasn't been tested with a real sandboxed browser.
+- Helper folders: `~/.mozilla/native-messaging-hosts` (Firefox, Zen, most forks), plus
+  `~/.librewolf`, `~/.waterfox`, `~/.floorp` when those exist. LibreWolf's folder is documented
+  upstream; Waterfox's and Floorp's are a harmless extra registration.
 - The download list lives in the background page's memory and is gone after a browser restart.
 - Login-gated or age-restricted videos need cookies, which aren't supported.
 - A cancelled download's partial files are deleted with its staging folder, so it can't resume.

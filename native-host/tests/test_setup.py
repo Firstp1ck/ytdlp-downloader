@@ -517,6 +517,50 @@ class SetupTests(unittest.TestCase):
         self.assertIn("JavaScript runtime is missing (Deno, or Node 22 or newer)", result.stdout)
         self.assertEqual(self.calls()[0], ["sudo", "pacman", "-S", "--needed", "deno", "--noconfirm"])
 
+    def test_existing_fork_folders_get_the_manifest_and_lose_it_on_uninstall(self):
+        (self.home / ".librewolf").mkdir()
+        (self.home / ".floorp").mkdir()
+        self.run_local("--no-deps")
+        librewolf = self.home / ".librewolf/native-messaging-hosts" / MANIFEST
+        floorp = self.home / ".floorp/native-messaging-hosts" / MANIFEST
+        for manifest in (self.manifest, librewolf, floorp):
+            self.assert_installed(manifest)
+        self.assertFalse((self.home / ".waterfox").exists(), "absent forks are not created")
+        self.run_setup("--uninstall")
+        for manifest in (self.manifest, librewolf, floorp):
+            self.assertFalse(manifest.exists(), manifest)
+
+    def test_explicit_target_dir_replaces_fork_defaults(self):
+        (self.home / ".librewolf").mkdir()
+        target = self.root / "custom"
+        self.run_local("--no-deps", "--target-dir", str(target))
+        self.assert_installed(target / MANIFEST)
+        self.assertFalse(self.manifest.exists())
+        self.assertFalse((self.home / ".librewolf/native-messaging-hosts").exists())
+
+    def test_sandboxed_browsers_are_reported(self):
+        flatpak = self.bin / "flatpak"
+        flatpak.write_text("#!/bin/sh\nprintf 'app.zen_browser.zen\\tZen\\norg.gnome.Calculator\\tCalculator\\n'\n")
+        flatpak.chmod(0o755)
+        snap = self.bin / "snap"
+        snap.write_text("#!/bin/sh\nprintf 'Name Version Rev\\nfirefox 158.0 1\\ncore22 1 1\\n'\n")
+        snap.chmod(0o755)
+        result = self.run_local("--no-deps")
+        self.assertIn("⚠ Sandboxed browser found: Zen (Flatpak)", result.stdout)
+        self.assertIn("⚠ Sandboxed browser found: firefox (Snap)", result.stdout)
+        self.assertNotIn("Calculator", result.stdout)
+        proxy = self.bin / "xdg-native-messaging-proxy"
+        if not any(Path(p).exists() for p in ("/usr/libexec/xdg-native-messaging-proxy",
+                                               "/usr/lib/xdg-native-messaging-proxy")):
+            self.assertIn("✗ xdg-native-messaging-proxy is not installed", result.stdout)
+        proxy.write_text("#!/bin/sh\n")
+        proxy.chmod(0o755)
+        self.assertIn("✓ xdg-native-messaging-proxy is installed", self.run_local("--no-deps").stdout)
+        self.assert_installed()
+
+    def test_no_sandbox_warning_without_sandboxed_browsers(self):
+        self.assertNotIn("Sandboxed", self.run_local("--no-deps").stdout)
+
     def test_missing_option_values_and_unknown_flags(self):
         for flag in ("--host-file", "--target-dir", "--unknown"):
             with self.subTest(flag=flag):
