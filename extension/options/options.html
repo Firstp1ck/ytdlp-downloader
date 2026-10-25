@@ -13,21 +13,15 @@
         <img src="../icons/icon.svg" alt="" width="36" height="36" />
         <div>
           <h1>yt-dlp Downloader</h1>
-          <p class="muted">Defaults for the right-click <strong>Download Video</strong> and <strong>Download Audio</strong> menu.</p>
+          <p class="muted">Each right-click action, <strong>Download Video</strong> and <strong>Download Audio</strong>, has its own defaults.</p>
         </div>
         <p class="save-status" id="save-status" role="status" aria-live="polite"></p>
       </header>
 
       <form id="settings-form" novalidate>
-        <section class="card" aria-labelledby="mode-heading">
-          <h2 id="mode-heading">Default action</h2>
-          <div class="segmented" id="mode-group" role="radiogroup" aria-labelledby="mode-heading"></div>
-          <p class="hint">“Download Video” uses this action. “Download Audio” always saves audio with the audio settings below.</p>
-        </section>
-
         <div class="columns">
           <fieldset class="card" id="video-fields">
-            <legend>Video</legend>
+            <legend>Download Video</legend>
             <label class="field">
               <span>Resolution</span>
               <select id="videoResolution" name="videoResolution"></select>
@@ -36,10 +30,35 @@
               <span>Preferred format</span>
               <select id="videoFormat" name="videoFormat"></select>
             </label>
+            <p class="hint">Resolution is the highest you want; if a video has nothing that low, the smallest size above is used.</p>
+            <div class="field">
+              <label for="videoSaveDir">Save folder</label>
+              <div class="path-row">
+                <input
+                  type="text"
+                  id="videoSaveDir"
+                  name="videoSaveDir"
+                  data-save-dir
+                  spellcheck="false"
+                  autocomplete="off"
+                  aria-describedby="videoSaveDir-hint videoSaveDir-error"
+                />
+                <button type="button" class="button" data-browse="videoSaveDir" aria-label="Browse for the Download Video save folder">Browse…</button>
+              </div>
+              <p class="hint" id="videoSaveDir-hint">Empty = host default. Absolute path or <code>~/…</code>; saved on Enter or when you leave the field.</p>
+              <p class="field-error" id="videoSaveDir-error" role="alert"></p>
+            </div>
+            <label class="toggle">
+              <span class="toggle-text">
+                <span>Download playlists</span>
+                <span class="hint">On: playlist links and watch links with a playlist save every item. Off: only the video.</span>
+              </span>
+              <input type="checkbox" id="videoPlaylist" name="videoPlaylist" role="switch" />
+            </label>
           </fieldset>
 
           <fieldset class="card" id="audio-fields">
-            <legend>Audio</legend>
+            <legend>Download Audio</legend>
             <label class="field">
               <span>Quality</span>
               <select id="audioQuality" name="audioQuality"></select>
@@ -49,36 +68,35 @@
               <select id="audioFormat" name="audioFormat"></select>
             </label>
             <p class="hint">Quality applies only when the audio is converted. If YouTube already serves the preferred format, or the format is Original, the stream is saved as-is.</p>
+            <div class="field">
+              <label for="audioSaveDir">Save folder</label>
+              <div class="path-row">
+                <input
+                  type="text"
+                  id="audioSaveDir"
+                  name="audioSaveDir"
+                  data-save-dir
+                  spellcheck="false"
+                  autocomplete="off"
+                  aria-describedby="audioSaveDir-hint audioSaveDir-error"
+                />
+                <button type="button" class="button" data-browse="audioSaveDir" aria-label="Browse for the Download Audio save folder">Browse…</button>
+              </div>
+              <p class="hint" id="audioSaveDir-hint">Empty = host default. Absolute path or <code>~/…</code>; saved on Enter or when you leave the field.</p>
+              <p class="field-error" id="audioSaveDir-error" role="alert"></p>
+            </div>
+            <label class="toggle">
+              <span class="toggle-text">
+                <span>Download playlists</span>
+                <span class="hint">On: playlist links and watch links with a playlist save every item. Off: only the audio file.</span>
+              </span>
+              <input type="checkbox" id="audioPlaylist" name="audioPlaylist" role="switch" />
+            </label>
           </fieldset>
         </div>
 
-        <section class="card" aria-labelledby="save-heading">
-          <h2 id="save-heading">Save location</h2>
-          <div class="path-row">
-            <label class="visually-hidden" for="saveDir">Default save folder</label>
-            <input
-              type="text"
-              id="saveDir"
-              name="saveDir"
-              spellcheck="false"
-              autocomplete="off"
-              aria-describedby="saveDir-hint saveDir-error"
-            />
-            <button type="button" class="button" id="browse">Browse…</button>
-          </div>
-          <p class="hint" id="saveDir-hint">Leave empty to use the host default. Absolute paths or <code>~/…</code>. Press Enter or leave the field to save.</p>
-          <p class="field-error" id="saveDir-error" role="alert"></p>
-        </section>
-
         <section class="card" aria-labelledby="behaviour-heading">
           <h2 id="behaviour-heading">Behaviour</h2>
-          <label class="toggle">
-            <span class="toggle-text">
-              <span>Download playlists</span>
-              <span class="hint">On: playlist links and watch links with a playlist download every item. Off: only the video.</span>
-            </span>
-            <input type="checkbox" id="playlist" name="playlist" role="switch" />
-          </label>
           <label class="toggle">
             <span class="toggle-text">
               <span>Notifications</span>

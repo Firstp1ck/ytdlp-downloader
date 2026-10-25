@@ -22,6 +22,7 @@ function manifestPaths() {
     manifest.browser_action.default_popup,
     manifest.browser_action.default_icon,
     manifest.options_ui.page,
+    ...(manifest.content_scripts ?? []).flatMap((entry) => entry.js ?? []),
   ];
 }
 
@@ -86,4 +87,20 @@ test("extension scripts never assign innerHTML or use document.write", () => {
     const source = fs.readFileSync(path.join(ROOT, rel), "utf8");
     assert.doesNotMatch(source, /\.(innerHTML|outerHTML)\s*=|insertAdjacentHTML|document\.write/, rel);
   }
+});
+
+test("the player-menu content script only runs on YouTube player pages", () => {
+  assert.deepEqual(manifest.content_scripts.map((entry) => entry.matches), [
+    ["*://www.youtube.com/*", "*://www.youtube-nocookie.com/embed/*"],
+  ]);
+  assert.deepEqual(manifest.content_scripts[0].js, ["content/player-menu.js"]);
+});
+
+test("the content script never sends anything but downloadFromPage", () => {
+  const source = fs.readFileSync(path.join(ROOT, "content/player-menu.js"), "utf8");
+  const types = [...source.matchAll(/type:\s*"([^"]+)"/g)].map((match) => match[1]);
+  assert.deepEqual(types, ["downloadFromPage"]);
+  assert.match(source, /if \(!event\.isTrusted\) return;/, "synthetic clicks are ignored");
+  // Key events reach YouTube's page-wide shortcuts (Escape left theater mode).
+  assert.doesNotMatch(source, /new KeyboardEvent/, "the script never synthesizes key events");
 });

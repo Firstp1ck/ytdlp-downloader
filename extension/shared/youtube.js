@@ -20,6 +20,8 @@
 
   const YOUTUBE_HOSTS = new Set(["youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"]);
   const SHORT_HOST = "youtu.be";
+  // Embedded players (player menu inside an iframe) run on these hosts at /embed/<id>.
+  const EMBED_HOSTS = new Set(["www.youtube.com", "youtube.com", "www.youtube-nocookie.com"]);
 
   // Match patterns are deliberately broader than the classifier (`*.youtube.com`
   // also covers studio., accounts., ...). The click handler re-validates with
@@ -94,7 +96,8 @@
    * Classifies a URL as a downloadable YouTube target.
    *
    * Supports youtube.com (bare, www., m., music.) and youtu.be, with
-   * /watch?v=, /shorts/<id>, /live/<id> and /playlist?list=. The returned URL
+   * /watch?v=, /shorts/<id>, /live/<id> and /playlist?list=, plus embedded
+   * players at /embed/<id> (youtube.com, youtube-nocookie.com). The returned URL
    * is rebuilt from validated parts, which drops tracking parameters and any
    * payload smuggled through other query keys.
    * @param {unknown} input
@@ -109,6 +112,11 @@
       const match = /^\/([^/]+)\/?$/.exec(url.pathname);
       if (!match || !VIDEO_ID.test(match[1])) return null;
       return watchTarget("www.youtube.com", match[1], listIdOf(url));
+    }
+
+    const embed = /^\/embed\/([^/]+)\/?$/.exec(url.pathname);
+    if (embed && EMBED_HOSTS.has(host)) {
+      return VIDEO_ID.test(embed[1]) ? watchTarget("www.youtube.com", embed[1], listIdOf(url)) : null;
     }
 
     if (!YOUTUBE_HOSTS.has(host)) return null;

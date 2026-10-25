@@ -23,11 +23,9 @@
 
   // Values mirror the native messaging protocol in TECHNICAL.md.
   // The host rejects anything else, so labels may change but values must not.
+  const MODES = Object.freeze(["video", "audio"]);
+
   const CHOICES = deepFreeze({
-    mode: [
-      { value: "video", label: "Video" },
-      { value: "audio", label: "Audio" },
-    ],
     videoResolution: [
       { value: "best", label: "Best available" },
       { value: "2160", label: "2160p (4K)" },
@@ -61,20 +59,32 @@
     ],
   });
 
+  // "Download Video" and "Download Audio" each have their own defaults, including
+  // save folder and playlist handling; only notifications are shared.
   const DEFAULTS = Object.freeze({
-    mode: "video",
     videoResolution: "best",
     videoFormat: "mp4",
+    videoSaveDir: "",
+    videoPlaylist: false,
     audioQuality: "best",
     audioFormat: "mp3",
-    saveDir: "",
-    playlist: false,
+    audioSaveDir: "",
+    audioPlaylist: false,
     notifications: true,
   });
 
-  const BOOLEAN_KEYS = Object.freeze(["playlist", "notifications"]);
+  const SAVE_DIR_KEYS = Object.freeze(["videoSaveDir", "audioSaveDir"]);
+  const BOOLEAN_KEYS = Object.freeze(["videoPlaylist", "audioPlaylist", "notifications"]);
 
-  // Keys forwarded to the host in a `download` message; `notifications` is extension-only.
+  // Version 1 stored one shared saveDir/playlist; carry them over to both actions.
+  const LEGACY_KEYS = Object.freeze({
+    videoSaveDir: "saveDir",
+    audioSaveDir: "saveDir",
+    videoPlaylist: "playlist",
+    audioPlaylist: "playlist",
+  });
+
+  // Keys of the native `download` message options (see toDownloadOptions).
   const DOWNLOAD_OPTION_KEYS = Object.freeze([
     "mode",
     "videoResolution",
@@ -132,7 +142,7 @@
    */
   function validateSetting(key, value) {
     if (!Object.hasOwn(DEFAULTS, key)) return { ok: false, error: `Unknown setting "${key}".` };
-    if (key === "saveDir") return validateSaveDir(value);
+    if (SAVE_DIR_KEYS.includes(key)) return validateSaveDir(value);
     if (BOOLEAN_KEYS.includes(key)) {
       return typeof value === "boolean"
         ? { ok: true, value }
@@ -146,7 +156,8 @@
 
   /**
    * Builds a complete settings object from untrusted stored data.
-   * Unknown keys are dropped; missing or invalid values fall back to DEFAULTS.
+   * Unknown keys are dropped; missing or invalid values fall back to the legacy
+   * shared key (see LEGACY_KEYS) and then to DEFAULTS.
    * @param {unknown} raw whatever was found in storage
    * @returns {typeof DEFAULTS} a new, complete settings object
    */
@@ -154,7 +165,8 @@
     const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
     const result = {};
     for (const key of Object.keys(DEFAULTS)) {
-      const checked = Object.hasOwn(source, key) ? validateSetting(key, source[key]) : null;
+      const sourceKey = Object.hasOwn(source, key) ? key : LEGACY_KEYS[key];
+      const checked = sourceKey && Object.hasOwn(source, sourceKey) ? validateSetting(key, source[sourceKey]) : null;
       result[key] = checked && checked.ok ? checked.value : DEFAULTS[key];
     }
     return result;
@@ -215,28 +227,31 @@
   }
 
   /**
-   * Builds the `options` object of a native `download` message.
+   * Builds the `options` object of a native `download` message for one action.
    * @param {unknown} settings stored settings (normalized here)
-   * @param {Partial<typeof DEFAULTS>} [overrides] per-action changes, e.g. {mode: "audio"}
+   * @param {"video" | "audio"} mode which menu action's defaults to use
    * @returns {{mode: string, videoResolution: string, videoFormat: string,
    *   audioQuality: string, audioFormat: string, saveDir: string, playlist: boolean}}
-   * @throws {TypeError} when an override is invalid
+   * @throws {TypeError} when mode is not "video" or "audio"
    */
-  function toDownloadOptions(settings, overrides = {}) {
+  function toDownloadOptions(settings, mode) {
+    if (!MODES.includes(mode)) throw new TypeError(`Invalid mode "${mode}".`);
     const merged = normalizeSettings(settings);
-    for (const [key, value] of Object.entries(overrides)) {
-      const checked = validateSetting(key, value);
-      if (!checked.ok) throw new TypeError(checked.error);
-      merged[key] = checked.value;
-    }
-    const options = {};
-    for (const key of DOWNLOAD_OPTION_KEYS) options[key] = merged[key];
-    return options;
+    return {
+      mode,
+      videoResolution: merged.videoResolution,
+      videoFormat: merged.videoFormat,
+      audioQuality: merged.audioQuality,
+      audioFormat: merged.audioFormat,
+      saveDir: merged[`${mode}SaveDir`],
+      playlist: merged[`${mode}Playlist`],
+    };
   }
 
   return Object.freeze({
     STORAGE_KEY,
     MAX_PATH_LENGTH,
+    MODES,
     CHOICES,
     DEFAULTS,
     DOWNLOAD_OPTION_KEYS,

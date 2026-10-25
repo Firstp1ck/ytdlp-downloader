@@ -13,6 +13,7 @@ extension/
   shared/youtube.js        YouTube URL classification and context-menu URL resolution
   shared/downloads.js      download entry state transitions
   shared/theme.css         colours and light/dark tokens
+  content/player-menu.js   adds rows to YouTube's own player menu (content script)
   options/                 settings page
   popup/                   toolbar popup
   icons/icon.svg
@@ -20,7 +21,10 @@ extension/
 native-host/
   ytdlp_host.py            the native messaging host
   install.sh, uninstall.sh
-  tests/test_ytdlp_host.py stdlib unittest suite
+  unsigned_pref.py         adds/removes the marked user.js line (install.sh --allow-unsigned)
+  build_xpi.py             packages extension/ into dist/ytdlp-downloader.xpi
+  tests/test_ytdlp_host.py stdlib unittest suite for the host
+  tests/test_install_scripts.py  install/uninstall end to end in a throwaway HOME
 reports/                   build report (HTML)
 ```
 
@@ -51,8 +55,9 @@ npx web-ext lint --source-dir extension     # needs a one-time npm download
 
 ## Running it locally
 
-1. Install the host from your working copy: `./native-host/install.sh`. It copies
-   `ytdlp_host.py`, so run it again after every host change.
+1. Install from your working copy: `./native-host/install.sh`. It copies `ytdlp_host.py` and
+   rebuilds the `.xpi`, so run it again after host changes. For quick extension iterations, the
+   temporary add-on below reloads faster.
 2. Load `extension/manifest.json` from `about:debugging#/runtime/this-firefox` and press **Reload**
    there after extension changes.
 3. Logs:
@@ -85,15 +90,25 @@ HOME=$(mktemp -d) ./native-host/install.sh --target-dir "$(mktemp -d)"
   if you update only one side the suites fail.
 - **Protocol messages**: change both sides in the same commit and bump `HOST_VERSION` when the change
   isn't backwards compatible. The options page shows the host version.
+- **YouTube's player menu**: `content/player-menu.js` depends on YouTube markup
+  (`.ytp-contextmenu .ytp-panel-menu`, `.ytp-menuitem*`, inline heights). If the rows stop
+  appearing, inspect the menu on a watch page and update the selectors and the notes at the top of
+  that file. Don't test it in an unmuted automated tab; YouTube autoplays.
 - **yt-dlp output parsing**: the templates are in `PROGRESS_TEMPLATE` and `FILE_TEMPLATE`. Check
   changes against real yt-dlp output, not only the fake. Absent fields must default to `null`.
 
 ## Packaging
 
+`install.sh` builds the package on every run. To build it on its own:
+
 ```sh
-cd extension && zip -r ../ytdlp-downloader.xpi . -x 'tests/*'
+python3 native-host/build_xpi.py extension dist/ytdlp-downloader.xpi
 ```
 
+The builder leaves out `tests/`, adds files in sorted order with a fixed timestamp (same sources,
+same archive), and writes atomically. `dist/` is git-ignored.
+
 The `.xpi` installs unsigned in Zen, Firefox Developer Edition/Nightly, and LibreWolf when
-`xpinstall.signatures.required` is `false`. Firefox release needs it signed through AMO (unlisted is
-fine): `npx web-ext sign --channel unlisted` with AMO API credentials.
+`xpinstall.signatures.required` is `false` (`install.sh --allow-unsigned` sets it via `user.js`).
+Firefox release needs it signed through AMO (unlisted is fine): `npx web-ext sign --channel unlisted`
+with AMO API credentials.

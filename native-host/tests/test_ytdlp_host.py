@@ -354,7 +354,15 @@ class SubprocessTests(unittest.TestCase):
         binary = self.root / "yt-dlp"
         binary.write_text(FAKE_YTDLP.replace("#!PYTHON", "#!" + sys.executable))
         binary.chmod(0o755)
-        self.env = {**os.environ, "YTDLP_HOST_YTDLP": str(binary)}
+        # The host refuses jobs without ffmpeg on PATH; a stub keeps these tests
+        # independent of the machine (CI runners have no ffmpeg).
+        stub_bin = self.root / "bin"
+        stub_bin.mkdir()
+        ffmpeg = stub_bin / "ffmpeg"
+        ffmpeg.write_text("#!/bin/sh\nexit 0\n")
+        ffmpeg.chmod(0o755)
+        self.env = {**os.environ, "YTDLP_HOST_YTDLP": str(binary),
+                    "PATH": f"{stub_bin}{os.pathsep}{os.environ.get('PATH', '')}"}
         self.pipe = PipeHost(self.env)
         self.addCleanup(self.temp.cleanup)
         self.addCleanup(self.pipe.close)
@@ -506,7 +514,8 @@ class ToolAndDispatchTests(unittest.TestCase):
 
     def test_invalid_directory_creation(self):
         with tempfile.NamedTemporaryFile() as target, \
-                mock.patch.object(host, "find_ytdlp", return_value="/bin/true"):
+                mock.patch.object(host, "find_ytdlp", return_value="/bin/true"), \
+                mock.patch.object(host.shutil, "which", side_effect=lambda name: "/usr/bin/" + name):
             self.native.handle(self.request({"saveDir": target.name + "/child", "mode": "audio"}))
             for thread in list(self.native.threads):
                 thread.join(timeout=3)

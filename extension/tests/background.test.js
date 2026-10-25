@@ -133,7 +133,7 @@ function boot({ settings } = {}) {
     state,
     port,
     click: (menuItemId, info) => browser.menus.onClicked.emit({ menuItemId, ...info }, { id: 1 }),
-    send(message, sender = { id: EXTENSION_ID }) {
+    send(message, sender = { id: EXTENSION_ID, url: "moz-extension://test/popup/popup.html" }) {
       const result = browser.runtime.onMessage.emit(message, sender)[0];
       return result === undefined ? undefined : Promise.resolve(result).then(local);
     },
@@ -171,8 +171,8 @@ test("settings menu opens the options page", async () => {
   assert.equal(bg.state.optionsOpened, 1);
 });
 
-test("Download Video on a link sends the saved defaults to the host", async () => {
-  const bg = boot({ settings: { videoResolution: "720", saveDir: "~/Videos" } });
+test("Download Video on a link sends the video defaults to the host", async () => {
+  const bg = boot({ settings: { videoResolution: "720", videoSaveDir: "~/Videos", audioSaveDir: "~/Music" } });
   bg.click("link:video", { linkUrl: `${VIDEO}&si=track`, pageUrl: "https://example.org/" });
   await flush();
   assert.equal(bg.port().name, "dev.firstpick.ytdlp_downloader");
@@ -186,14 +186,27 @@ test("Download Video on a link sends the saved defaults to the host", async () =
   assert.equal(bg.state.badge, "1");
 });
 
-test("Download Audio forces audio mode; video context uses the page URL", async () => {
-  const bg = boot({ settings: { mode: "video", audioFormat: "opus" } });
+test("Download Audio uses the audio defaults; video context uses the page URL", async () => {
+  const bg = boot({ settings: { audioFormat: "opus", videoSaveDir: "~/Videos", audioSaveDir: "~/Music" } });
   bg.click("page:audio", { srcUrl: "blob:https://www.youtube.com/abc", pageUrl: VIDEO, mediaType: "video" });
   await flush();
   const message = bg.lastDownload();
   assert.equal(message.url, VIDEO);
   assert.equal(message.options.mode, "audio");
   assert.equal(message.options.audioFormat, "opus");
+  assert.equal(message.options.saveDir, "~/Music");
+});
+
+test("each action has its own playlist setting", async () => {
+  const bg = boot({ settings: { videoPlaylist: true, audioPlaylist: false } });
+  bg.click("link:video", { linkUrl: PLAYLIST });
+  await flush();
+  assert.equal(bg.lastDownload().options.playlist, true);
+  const sent = bg.port().posted.length;
+  bg.click("link:audio", { linkUrl: PLAYLIST });
+  await flush();
+  assert.equal(bg.port().posted.length, sent, "audio playlists are off, so nothing is sent");
+  assert.match(bg.state.notifications.at(-1).message, /under Audio/);
 });
 
 test("one long-lived port is reused across downloads", async () => {
@@ -278,7 +291,7 @@ test("playlist URLs require the playlist setting", async () => {
   assert.equal(off.state.ports.length, 0);
   assert.equal(off.state.notifications.at(-1).title, "Playlist downloads are off");
 
-  const on = boot({ settings: { playlist: true } });
+  const on = boot({ settings: { videoPlaylist: true } });
   on.click("link:video", { linkUrl: PLAYLIST });
   await flush();
   assert.equal(on.lastDownload().url, PLAYLIST);
@@ -426,7 +439,7 @@ test("messages from other senders and unknown types are ignored", () => {
 });
 
 test("playlist setting only applies to URLs with a list id", async () => {
-  const bg = boot({ settings: { playlist: true } });
+  const bg = boot({ settings: { videoPlaylist: true } });
   bg.click("link:video", { linkUrl: VIDEO });
   await flush();
   assert.equal(bg.lastDownload().options.playlist, false, "a plain watch URL never gets --yes-playlist");
@@ -435,4 +448,42 @@ test("playlist setting only applies to URLs with a list id", async () => {
   bg.click("link:video", { linkUrl: withList });
   await flush();
   assert.equal(bg.lastDownload().options.playlist, true);
+});
+
+const YOUTUBE_TAB = { id: EXTENSION_ID, url: VIDEO, tab: { id: 7 } };
+
+test("the player menu on a YouTube page starts a download with that action's defaults", async () => {
+  const bg = boot({ settings: { audioFormat: "opus", audioSaveDir: "~/Music" } });
+  assert.deepEqual(await bg.send({ type: "downloadFromPage", action: "audio", url: `${VIDEO}&t=42s` }, YOUTUBE_TAB), { ok: true });
+  await flush();
+  const message = bg.lastDownload();
+  assert.equal(message.url, VIDEO, "the page URL is re-validated and canonicalized");
+  assert.equal(message.options.mode, "audio");
+  assert.equal(message.options.saveDir, "~/Music");
+});
+
+test("an embedded player's URL is downloaded as the watch URL", async () => {
+  const bg = boot();
+  const embed = "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1";
+  await bg.send({ type: "downloadFromPage", action: "video", url: embed }, { ...YOUTUBE_TAB, url: embed });
+  await flush();
+  assert.equal(bg.lastDownload().url, VIDEO);
+});
+
+test("web pages can only send downloadFromPage", async () => {
+  const bg = boot();
+  for (const type of ["getState", "ping", "pickDirectory", "cancel", "openFolder", "clearInactive"]) {
+    assert.equal(await bg.send({ type, id: "x", start: "~" }, YOUTUBE_TAB), undefined, type);
+  }
+  assert.equal(await bg.send({ type: "downloadFromPage", action: "settings", url: VIDEO }, YOUTUBE_TAB), undefined);
+  await flush();
+  assert.equal(bg.state.ports.length, 0, "nothing reached the native host");
+});
+
+test("downloadFromPage with a non-YouTube URL only shows a notice", async () => {
+  const bg = boot();
+  await bg.send({ type: "downloadFromPage", action: "video", url: "https://evil.example/watch?v=dQw4w9WgXcQ" }, YOUTUBE_TAB);
+  await flush();
+  assert.equal(bg.state.ports.length, 0);
+  assert.equal(bg.state.notifications.at(-1).title, "Not a YouTube video");
 });

@@ -22,10 +22,21 @@ and why it is built this way. Usage is in [README.md](README.md); working on the
   - `background.js`: context menus, the one native port, the in-memory download list, toolbar
     badge, notifications, and request/reply handling for the options page and popup.
   - `shared/settings.js`: the single source for defaults, allowed values, validation, and
-    `toDownloadOptions()`. The options page builds its controls from it.
-  - `shared/youtube.js`: classifies YouTube URLs (watch, youtu.be, Shorts, live, playlist, `m.`,
-    `music.`) and rebuilds a clean URL from the validated video/list ids.
+    `toDownloadOptions(settings, mode)`. "Download Video" and "Download Audio" each have their own
+    keys (`video*` and `audio*`, including save folder and playlist); only `notifications` is shared.
+    Settings saved by 1.0 (one `saveDir`/`playlist`, plus a `mode` default action) are carried over to
+    both actions when loaded. The options page builds its controls from this module.
+  - `shared/youtube.js`: classifies YouTube URLs (watch, youtu.be, Shorts, live, playlist, embeds,
+    `m.`, `music.`) and rebuilds a clean URL from the validated video/list ids.
   - `shared/downloads.js`: pure state transitions for download entries driven by host events.
+  - `content/player-menu.js`: content script on `www.youtube.com` and `youtube-nocookie.com/embed`
+    that adds **Download Video**/**Download Audio** rows to YouTube's own player menu
+    (`.ytp-contextmenu`), which the menus API can't reach. It inserts the rows in a capture-phase
+    `contextmenu` listener, before YouTube measures the menu. On the very first right-click
+    YouTube builds the popup (appended to `<body>`) and measures it during the event; a one-shot
+    `MutationObserver` then adds the rows and grows the inline heights before the next paint. A
+    click sends `{type: "downloadFromPage", action, url: location.href}`; synthetic clicks
+    (`!event.isTrusted`) are ignored. If YouTube changes its markup, the rows just don't appear.
   - `options/`, `popup/`: UI pages. All network-derived text goes through `textContent`.
 - **Native host** (`native-host/ytdlp_host.py`, Python 3.8+, stdlib only): validates requests, maps
   options to a yt-dlp argv, runs up to two jobs at once with a FIFO queue, streams progress, and
@@ -62,8 +73,8 @@ closes, because the next frame boundary can't be trusted.
   "videoFormat": "any" | "mp4" | "webm" | "mkv",
   "audioQuality": "best" | "320" | "256" | "192" | "128" | "96",     // kbps; "best" = VBR 0
   "audioFormat": "best" | "mp3" | "m4a" | "opus" | "flac" | "wav",  // "best" = keep the source codec
-  "saveDir": "",          // "" = host default; "~" expanded; must be absolute afterwards
-  "playlist": false       // the extension only sends true for URLs that carry a list id
+  "saveDir": "",          // the clicked action's save folder; "" = host default; "~" expanded
+  "playlist": false       // the clicked action's setting, sent as true only for URLs with a list id
 }}
 {"type": "cancel", "id": "<uuid>"}
 {"type": "pickDirectory", "requestId": "<uuid>", "start": "~/Videos"}
@@ -162,7 +173,13 @@ host. Web pages can't talk to it. Inside that boundary:
   `openPath` only opens existing directories, because `xdg-open` on a `.desktop` file may run it.
 - **DOM**: titles and URLs come from the network and are only written with `textContent`. A test
   rejects `innerHTML`, inline scripts, and inline handlers in the extension.
-- **Permissions**: `menus`, `nativeMessaging`, `storage`, `notifications`. No host permissions.
+- **Permissions**: `menus`, `nativeMessaging`, `storage`, `notifications`, plus the content script
+  on YouTube player pages (shown at install as access to youtube.com). No other host access.
+- **Messages from web pages**: content scripts share the extension id, so the background page
+  checks `sender.url`. Only the extension's own pages (`moz-extension://…`) get the full message
+  set; anything else may only send `downloadFromPage`, whose URL goes through the same
+  `classifyYouTubeUrl` check as a menu click. A compromised YouTube page could at most start a
+  download of a YouTube video.
 
 ## Known limits
 

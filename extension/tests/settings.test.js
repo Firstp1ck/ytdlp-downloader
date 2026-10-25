@@ -20,15 +20,16 @@ function fakeStorage(initial = {}) {
   };
 }
 
-test("defaults match the plan", () => {
+test("defaults: each action has its own settings, notifications are shared", () => {
   assert.deepEqual({ ...DEFAULTS }, {
-    mode: "video",
     videoResolution: "best",
     videoFormat: "mp4",
+    videoSaveDir: "",
+    videoPlaylist: false,
     audioQuality: "best",
     audioFormat: "mp3",
-    saveDir: "",
-    playlist: false,
+    audioSaveDir: "",
+    audioPlaylist: false,
     notifications: true,
   });
   assert.ok(Object.isFrozen(DEFAULTS));
@@ -43,7 +44,7 @@ test("every enum default is one of its choices", () => {
 
 test("enum values match the native messaging protocol", () => {
   const values = (key) => CHOICES[key].map((c) => c.value);
-  assert.deepEqual(values("mode"), ["video", "audio"]);
+  assert.deepEqual([...settings.MODES], ["video", "audio"]);
   assert.deepEqual(values("videoResolution"), ["best", "2160", "1440", "1080", "720", "480", "360"]);
   assert.deepEqual(values("videoFormat"), ["any", "mp4", "webm", "mkv"]);
   assert.deepEqual(values("audioQuality"), ["best", "320", "256", "192", "128", "96"]);
@@ -61,7 +62,8 @@ test("enum values and download keys match the native host", () => {
   const out = require("node:child_process").execFileSync("python3", ["-I", "-c", script, hostPath], { encoding: "utf8" });
   const host = JSON.parse(out);
   for (const [key, values] of Object.entries(host.enums)) {
-    assert.deepEqual(CHOICES[key].map((c) => c.value).sort(), values, key);
+    const ours = key === "mode" ? [...settings.MODES] : CHOICES[key].map((c) => c.value);
+    assert.deepEqual(ours.sort(), values, key);
   }
   assert.deepEqual([...settings.DOWNLOAD_OPTION_KEYS].sort(), host.keys);
 });
@@ -73,36 +75,48 @@ test("normalizeSettings returns defaults for missing or non-object data", () => 
 });
 
 test("normalizeSettings merges partial data over defaults", () => {
-  const result = settings.normalizeSettings({ mode: "audio", audioFormat: "opus" });
-  assert.deepEqual(result, { ...DEFAULTS, mode: "audio", audioFormat: "opus" });
+  const result = settings.normalizeSettings({ audioSaveDir: "~/Music", audioFormat: "opus" });
+  assert.deepEqual(result, { ...DEFAULTS, audioSaveDir: "~/Music", audioFormat: "opus" });
+});
+
+test("normalizeSettings migrates the old shared saveDir/playlist to both actions", () => {
+  const result = settings.normalizeSettings({ mode: "audio", saveDir: "~/YT", playlist: true });
+  assert.deepEqual(result, {
+    ...DEFAULTS, videoSaveDir: "~/YT", audioSaveDir: "~/YT", videoPlaylist: true, audioPlaylist: true,
+  });
+  assert.equal(Object.hasOwn(result, "mode"), false, "the removed default action is dropped");
+  const explicit = settings.normalizeSettings({ saveDir: "~/YT", audioSaveDir: "~/Music" });
+  assert.equal(explicit.audioSaveDir, "~/Music", "new keys win over legacy ones");
+  assert.equal(explicit.videoSaveDir, "~/YT");
 });
 
 test("normalizeSettings replaces invalid values and drops unknown keys", () => {
   const result = settings.normalizeSettings({
-    mode: "both",
     videoResolution: 1080,
     videoFormat: "MP4",
     audioQuality: "320k",
     audioFormat: "--exec rm",
-    saveDir: "relative/path",
-    playlist: "true",
+    videoSaveDir: "relative/path",
+    audioSaveDir: "-P/tmp",
+    videoPlaylist: "true",
+    audioPlaylist: 1,
     notifications: 0,
     extraArgs: "--exec evil",
-    __proto__: { mode: "audio" },
+    __proto__: { audioFormat: "flac" },
   });
   assert.deepEqual(result, { ...DEFAULTS });
   assert.equal(Object.hasOwn(result, "extraArgs"), false);
 });
 
 test("normalizeSettings does not read inherited properties", () => {
-  const raw = Object.create({ mode: "audio" });
-  assert.equal(settings.normalizeSettings(raw).mode, "video");
+  const raw = Object.create({ audioFormat: "flac" });
+  assert.equal(settings.normalizeSettings(raw).audioFormat, "mp3");
 });
 
 test("normalizeSettings returns a fresh mutable object", () => {
   const a = settings.normalizeSettings({});
-  a.mode = "audio";
-  assert.equal(settings.normalizeSettings({}).mode, "video");
+  a.audioFormat = "flac";
+  assert.equal(settings.normalizeSettings({}).audioFormat, "mp3");
 });
 
 test("validateSaveDir accepts empty, ~, ~/ and absolute paths", () => {
@@ -138,8 +152,8 @@ test("validateSetting rejects unknown keys", () => {
 });
 
 test("loadSettings merges stored data with defaults", async () => {
-  const storage = fakeStorage({ [STORAGE_KEY]: { videoResolution: "720", playlist: true, junk: 1 } });
-  assert.deepEqual(await settings.loadSettings(storage), { ...DEFAULTS, videoResolution: "720", playlist: true });
+  const storage = fakeStorage({ [STORAGE_KEY]: { videoResolution: "720", videoPlaylist: true, junk: 1 } });
+  assert.deepEqual(await settings.loadSettings(storage), { ...DEFAULTS, videoResolution: "720", videoPlaylist: true });
 });
 
 test("loadSettings returns defaults for empty or corrupt storage", async () => {
@@ -152,46 +166,60 @@ test("loadSettings throws a clear error without a storage area", async () => {
 });
 
 test("saveSettings validates, merges, and writes a complete object", async () => {
-  const storage = fakeStorage({ [STORAGE_KEY]: { mode: "audio", junk: true } });
-  const saved = await settings.saveSettings({ audioFormat: "flac", saveDir: " ~/Music " }, storage);
-  const expected = { ...DEFAULTS, mode: "audio", audioFormat: "flac", saveDir: "~/Music" };
+  const storage = fakeStorage({ [STORAGE_KEY]: { videoFormat: "mkv", junk: true } });
+  const saved = await settings.saveSettings({ audioFormat: "flac", audioSaveDir: " ~/Music " }, storage);
+  const expected = { ...DEFAULTS, videoFormat: "mkv", audioFormat: "flac", audioSaveDir: "~/Music" };
   assert.deepEqual(saved, expected);
   assert.deepEqual(storage.data[STORAGE_KEY], expected);
 });
 
 test("saveSettings rejects invalid patches without writing", async () => {
-  const storage = fakeStorage({ [STORAGE_KEY]: { mode: "audio" } });
-  await assert.rejects(settings.saveSettings({ mode: "audio", audioFormat: "aac" }, storage), TypeError);
+  const storage = fakeStorage({ [STORAGE_KEY]: { audioFormat: "opus" } });
+  await assert.rejects(settings.saveSettings({ audioQuality: "192", audioFormat: "aac" }, storage), TypeError);
   await assert.rejects(settings.saveSettings({ extraArgs: "--exec x" }, storage), /Unknown setting/);
-  await assert.rejects(settings.saveSettings({ saveDir: "relative" }, storage), /absolute path/);
+  await assert.rejects(settings.saveSettings({ mode: "audio" }, storage), /Unknown setting/);
+  await assert.rejects(settings.saveSettings({ videoSaveDir: "relative" }, storage), /absolute path/);
   await assert.rejects(settings.saveSettings(null, storage), TypeError);
-  assert.deepEqual(storage.data[STORAGE_KEY], { mode: "audio" });
+  assert.deepEqual(storage.data[STORAGE_KEY], { audioFormat: "opus" });
 });
 
-test("toDownloadOptions picks protocol keys and omits extension-only settings", () => {
-  const options = settings.toDownloadOptions({ ...DEFAULTS, videoResolution: "1080" });
+const PER_ACTION = {
+  ...DEFAULTS,
+  videoResolution: "1080",
+  videoSaveDir: "~/Videos",
+  videoPlaylist: true,
+  audioQuality: "192",
+  audioSaveDir: "~/Music",
+  audioPlaylist: false,
+};
+
+test("toDownloadOptions uses the video action's save folder and playlist setting", () => {
+  const options = settings.toDownloadOptions(PER_ACTION, "video");
   assert.deepEqual(options, {
     mode: "video",
     videoResolution: "1080",
     videoFormat: "mp4",
-    audioQuality: "best",
+    audioQuality: "192",
     audioFormat: "mp3",
-    saveDir: "",
-    playlist: false,
+    saveDir: "~/Videos",
+    playlist: true,
   });
-  assert.equal(Object.hasOwn(options, "notifications"), false);
+  assert.deepEqual(Object.keys(options).sort(), [...settings.DOWNLOAD_OPTION_KEYS].sort());
 });
 
-test("toDownloadOptions applies a forced audio mode and keeps the other defaults", () => {
-  const options = settings.toDownloadOptions({ mode: "video", audioQuality: "192" }, { mode: "audio" });
+test("toDownloadOptions uses the audio action's save folder and playlist setting", () => {
+  const options = settings.toDownloadOptions(PER_ACTION, "audio");
   assert.equal(options.mode, "audio");
+  assert.equal(options.saveDir, "~/Music");
+  assert.equal(options.playlist, false);
   assert.equal(options.audioQuality, "192");
-  assert.equal(options.audioFormat, "mp3");
 });
 
-test("toDownloadOptions normalizes corrupt settings and rejects invalid overrides", () => {
-  assert.deepEqual(settings.toDownloadOptions("garbage").mode, "video");
-  assert.throws(() => settings.toDownloadOptions(DEFAULTS, { mode: "both" }), TypeError);
+test("toDownloadOptions normalizes corrupt settings and rejects an invalid mode", () => {
+  assert.equal(settings.toDownloadOptions("garbage", "audio").audioFormat, "mp3");
+  for (const bad of [undefined, "both", "VIDEO", {}]) {
+    assert.throws(() => settings.toDownloadOptions(DEFAULTS, bad), TypeError, String(bad));
+  }
 });
 
 test("overlapping saveSettings calls keep every patch", async () => {
@@ -211,7 +239,7 @@ test("overlapping saveSettings calls keep every patch", async () => {
 
 test("a rejected save does not block later saves", async () => {
   const storage = fakeStorage();
-  await assert.rejects(settings.saveSettings({ mode: "nope" }, storage), TypeError);
-  await settings.saveSettings({ mode: "audio" }, storage);
-  assert.equal(storage.data[STORAGE_KEY].mode, "audio");
+  await assert.rejects(settings.saveSettings({ audioFormat: "nope" }, storage), TypeError);
+  await settings.saveSettings({ audioFormat: "flac" }, storage);
+  assert.equal(storage.data[STORAGE_KEY].audioFormat, "flac");
 });

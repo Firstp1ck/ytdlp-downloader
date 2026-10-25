@@ -95,7 +95,8 @@ test("unsupported YouTube pages are rejected", () => {
     `https://www.youtube.com/watch?v=${ID}x`,
     "https://www.youtube.com/@channel",
     "https://www.youtube.com/feed/subscriptions",
-    `https://www.youtube.com/embed/${ID}`,
+    `https://www.youtube.com/embed/${ID}x`,
+    `https://m.youtube.com/embed/${ID}`,
     `https://www.youtube.com/shorts/${ID}/extra`,
     "https://www.youtube.com/shorts/",
     `https://studio.youtube.com/watch?v=${ID}`,
@@ -124,7 +125,8 @@ test("look-alike and non-YouTube hosts are rejected", () => {
     `https://www.youtube.com:8443/watch?v=${ID}`,
     `https://evil.com/?u=https://www.youtube.com/watch?v=${ID}`,
     `https://youtu.be.evil.com/${ID}`,
-    `https://www.youtube-nocookie.com/embed/${ID}`,
+    `https://www.youtube-nocookie.com/watch?v=${ID}`,
+    `https://youtube-nocookie.com.evil.com/embed/${ID}`,
   ]) {
     assert.equal(classifyYouTubeUrl(url), null, url);
   }
@@ -206,4 +208,12 @@ test("menu match patterns are well formed", () => {
   for (const p of [...LINK_TARGET_PATTERNS, ...DOCUMENT_PATTERNS]) assert.match(p, pattern);
   assert.ok(LINK_TARGET_PATTERNS.includes("*://youtu.be/*"));
   assert.ok(!DOCUMENT_PATTERNS.some((p) => p.includes("youtu.be")), "youtu.be pages redirect; no document pattern needed");
+});
+
+test("embedded players resolve to the canonical watch URL", () => {
+  for (const host of ["www.youtube.com", "youtube.com", "www.youtube-nocookie.com"]) {
+    const target = classifyYouTubeUrl(`https://${host}/embed/${ID}?autoplay=1&start=30`);
+    assert.deepEqual(target, { kind: "video", url: `https://www.youtube.com/watch?v=${ID}`, videoId: ID, listId: null }, host);
+  }
+  assert.equal(classifyYouTubeUrl(`https://www.youtube.com/embed/${ID}?list=${LIST}`).listId, LIST);
 });

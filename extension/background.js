@@ -309,19 +309,19 @@ async function downloadFromContext(info, action) {
     notifyAlways("yt-dlp: settings unavailable", String(error?.message ?? error));
     return;
   }
+  const options = toDownloadOptions(settings, action);
   // A bare playlist URL would download every item even with --no-playlist.
-  if (target.kind === "playlist" && !settings.playlist) {
+  if (target.kind === "playlist" && !options.playlist) {
+    const section = action === "audio" ? "Audio" : "Video";
     notifyAlways(
       "Playlist downloads are off",
-      'Turn on "Download playlists" in yt-dlp settings to download this playlist.',
+      `Turn on "Download playlists" under ${section} in yt-dlp settings to download this playlist.`,
     );
     return;
   }
   // --yes-playlist on a URL without a list id makes yt-dlp render the playlist
   // output template with "NA" fields, so only list URLs get playlist handling.
-  const overrides = { playlist: settings.playlist && target.listId !== null };
-  if (action === "audio") overrides.mode = "audio";
-  startDownload(target.url, toDownloadOptions(settings, overrides));
+  startDownload(target.url, { ...options, playlist: options.playlist && target.listId !== null });
 }
 
 /**
@@ -503,8 +503,25 @@ function reply(promise) {
   );
 }
 
+/**
+ * Handles the one request YouTube pages may send: download the page's video
+ * from the player menu (content/player-menu.js). The URL is re-validated like
+ * a context-menu click, so a page can at most start a download of a YouTube URL.
+ * @param {{action?: unknown, url?: unknown}} message
+ */
+function onPageMessage(message) {
+  if (message.type !== "downloadFromPage") return undefined;
+  if (message.action !== "video" && message.action !== "audio") return undefined;
+  void downloadFromContext({ pageUrl: typeof message.url === "string" ? message.url : "" }, message.action);
+  return Promise.resolve({ ok: true });
+}
+
 browser.runtime.onMessage.addListener((message, sender) => {
   if (sender.id !== browser.runtime.id || !message || typeof message !== "object") return undefined;
+  // Content scripts share the extension id but run inside web pages; only the
+  // extension's own pages may use the full message set.
+  const fromExtensionPage = typeof sender.url === "string" && sender.url.startsWith(browser.runtime.getURL(""));
+  if (!fromExtensionPage) return onPageMessage(message);
   switch (message.type) {
     case "getState":
       return Promise.resolve({ ok: true, downloads: snapshot(), host: hostStatus });

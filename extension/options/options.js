@@ -4,20 +4,16 @@ const { CHOICES, loadSettings, saveSettings, validateSaveDir } = globalThis.Ytdl
 
 const SAVED_FEEDBACK_MS = 2000;
 const SELECT_KEYS = ["videoResolution", "videoFormat", "audioQuality", "audioFormat"];
-const TOGGLE_KEYS = ["playlist", "notifications"];
+const TOGGLE_KEYS = ["videoPlaylist", "audioPlaylist", "notifications"];
+const SAVE_DIR_KEYS = ["videoSaveDir", "audioSaveDir"];
 
 const form = document.getElementById("settings-form");
-const modeGroup = document.getElementById("mode-group");
-const videoFields = document.getElementById("video-fields");
-const audioFields = document.getElementById("audio-fields");
-const saveDirInput = document.getElementById("saveDir");
-const saveDirError = document.getElementById("saveDir-error");
-const browseButton = document.getElementById("browse");
+const browseButtons = [...document.querySelectorAll("[data-browse]")];
 const saveStatus = document.getElementById("save-status");
 
 let savedTimer = null;
-/** Last saved saveDir; avoids re-saving when blur follows an Enter commit. */
-let committedSaveDir = "";
+/** Last saved value per save-folder key; avoids re-saving when blur follows an Enter commit. */
+const committedSaveDirs = { videoSaveDir: "", audioSaveDir: "" };
 /** Latest pong; null while the host is unknown or unreachable. */
 let hostPong = null;
 
@@ -26,17 +22,6 @@ let hostPong = null;
 // ---------------------------------------------------------------------------
 
 function buildControls() {
-  for (const { value, label } of CHOICES.mode) {
-    const input = document.createElement("input");
-    input.type = "radio";
-    input.name = "mode";
-    input.id = `mode-${value}`;
-    input.value = value;
-    const text = document.createElement("label");
-    text.htmlFor = input.id;
-    text.textContent = label;
-    modeGroup.append(input, text);
-  }
   for (const key of SELECT_KEYS) {
     const select = document.getElementById(key);
     for (const { value, label } of CHOICES[key]) select.add(new Option(label, value));
@@ -48,22 +33,12 @@ function buildControls() {
  * @param {object} settings normalized settings from loadSettings
  */
 function applyToForm(settings) {
-  document.getElementById(`mode-${settings.mode}`).checked = true;
   for (const key of SELECT_KEYS) document.getElementById(key).value = settings[key];
   for (const key of TOGGLE_KEYS) document.getElementById(key).checked = settings[key];
-  saveDirInput.value = settings.saveDir;
-  committedSaveDir = settings.saveDir;
-  updateModeDependentFields(settings.mode);
-}
-
-/**
- * Highlights the section the default action uses. Both stay editable because
- * "Download Audio" uses the audio settings regardless of the default action.
- * @param {string} mode
- */
-function updateModeDependentFields(mode) {
-  videoFields.classList.toggle("is-default", mode === "video");
-  audioFields.classList.toggle("is-default", mode === "audio");
+  for (const key of SAVE_DIR_KEYS) {
+    document.getElementById(key).value = settings[key];
+    committedSaveDirs[key] = settings[key];
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -104,59 +79,64 @@ async function save(patch) {
 }
 
 /**
- * Validates and saves the save-folder field.
+ * Validates and saves one save-folder field.
+ * @param {string} key "videoSaveDir" or "audioSaveDir"
  * @returns {Promise<void>}
  */
-async function commitSaveDir() {
-  const checked = validateSaveDir(saveDirInput.value);
-  saveDirError.textContent = checked.ok ? "" : checked.error;
-  saveDirInput.setAttribute("aria-invalid", String(!checked.ok));
-  if (!checked.ok || checked.value === committedSaveDir) return;
-  if (await save({ saveDir: checked.value })) {
-    committedSaveDir = checked.value;
-    saveDirInput.value = checked.value;
+async function commitSaveDir(key) {
+  const input = document.getElementById(key);
+  const checked = validateSaveDir(input.value);
+  document.getElementById(`${key}-error`).textContent = checked.ok ? "" : checked.error;
+  input.setAttribute("aria-invalid", String(!checked.ok));
+  if (!checked.ok || checked.value === committedSaveDirs[key]) return;
+  if (await save({ [key]: checked.value })) {
+    committedSaveDirs[key] = checked.value;
+    input.value = checked.value;
   }
 }
 
 form.addEventListener("change", (event) => {
   const target = event.target;
-  if (target.name === "mode") {
-    updateModeDependentFields(target.value);
-    void save({ mode: target.value });
-  } else if (SELECT_KEYS.includes(target.name)) {
+  if (SELECT_KEYS.includes(target.name)) {
     void save({ [target.name]: target.value });
   } else if (TOGGLE_KEYS.includes(target.name)) {
     void save({ [target.name]: target.checked });
-  } else if (target === saveDirInput) {
-    void commitSaveDir();
+  } else if (SAVE_DIR_KEYS.includes(target.name)) {
+    void commitSaveDir(target.name);
   }
 });
 
-// Enter in the path field would submit the form; treat it as "commit the path".
+// Enter in a path field would submit the form; treat it as "commit that path".
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  void commitSaveDir();
+  const active = document.activeElement;
+  if (active && SAVE_DIR_KEYS.includes(active.name)) void commitSaveDir(active.name);
 });
 
-browseButton.addEventListener("click", async () => {
-  browseButton.disabled = true;
-  try {
-    const result = await browser.runtime.sendMessage({ type: "pickDirectory", start: saveDirInput.value });
-    if (!result?.ok) {
-      saveDirError.textContent = result?.error ?? "The folder dialog failed.";
-      return;
+for (const button of browseButtons) {
+  const key = button.dataset.browse;
+  const input = document.getElementById(key);
+  const error = document.getElementById(`${key}-error`);
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    try {
+      const result = await browser.runtime.sendMessage({ type: "pickDirectory", start: input.value });
+      if (!result?.ok) {
+        error.textContent = result?.error ?? "The folder dialog failed.";
+        return;
+      }
+      if (result.path) {
+        input.value = result.path;
+        await commitSaveDir(key);
+      }
+    } catch (failure) {
+      error.textContent = `Background page unavailable: ${failure.message}`;
+    } finally {
+      updateBrowseAvailability();
+      input.focus();
     }
-    if (result.path) {
-      saveDirInput.value = result.path;
-      await commitSaveDir();
-    }
-  } catch (error) {
-    saveDirError.textContent = `Background page unavailable: ${error.message}`;
-  } finally {
-    updateBrowseAvailability();
-    saveDirInput.focus();
-  }
-});
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Native host status
@@ -184,13 +164,17 @@ function setDetail(id, text, problem = false) {
 
 function updateBrowseAvailability() {
   const pickerMissing = hostPong !== null && !hostPong.picker;
-  browseButton.disabled = hostPong === null || pickerMissing;
-  browseButton.title = pickerMissing
+  const title = pickerMissing
     ? "No folder dialog found. Install zenity, kdialog, or yad."
     : hostPong === null
       ? "The native host is not reachable."
       : "";
-  saveDirInput.placeholder = hostPong?.defaultSaveDir ? `Default: ${hostPong.defaultSaveDir}` : "Host default";
+  for (const button of browseButtons) {
+    button.disabled = hostPong === null || pickerMissing;
+    button.title = title;
+  }
+  const placeholder = hostPong?.defaultSaveDir ? `Default: ${hostPong.defaultSaveDir}` : "Host default";
+  for (const key of SAVE_DIR_KEYS) document.getElementById(key).placeholder = placeholder;
 }
 
 /**

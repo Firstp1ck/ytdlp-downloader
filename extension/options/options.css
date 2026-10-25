@@ -76,11 +76,6 @@ form {
   gap: 14px;
 }
 
-.card.is-default legend::after {
-  content: " · default";
-  color: var(--accent, currentColor);
-}
-
 .field {
   display: grid;
   gap: 5px;
@@ -130,43 +125,18 @@ code {
   display: none;
 }
 
-.segmented {
-  position: relative;
-  display: inline-flex;
-  justify-self: start;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-small);
-  background: var(--bg);
-}
-
-.segmented input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.segmented label {
-  min-width: 84px;
-  padding: 5px 14px;
-  border-radius: 5px;
-  text-align: center;
-  cursor: pointer;
-}
-
-.segmented input:checked + label {
-  background: var(--accent);
-  color: var(--accent-text);
-}
-
-.segmented input:focus-visible + label {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
-}
-
 .path-row {
   display: flex;
   gap: 8px;
+}
+
+.field > label {
+  font-size: 13px;
+}
+
+fieldset.card .toggle {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 .toggle {

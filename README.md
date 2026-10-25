@@ -1,8 +1,8 @@
 # ytdlp-downloader
 
-Right-click a YouTube video in Firefox or Zen and pick **Download Video**.
-[yt-dlp](https://github.com/yt-dlp/yt-dlp) downloads it in the background with the defaults you set
-on the settings page.
+Right-click a YouTube video in Firefox or Zen and pick **Download Video** or **Download Audio**.
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) downloads it in the background. Each of the two actions
+has its own defaults on the settings page.
 
 It has two parts:
 
@@ -23,29 +23,43 @@ A Zen "mod" can't do this: mods are CSS theme tweaks with no access to processes
 
 ## Install
 
-1. Register the native host:
+1. Run the installer from the repository:
 
    ```sh
    ./native-host/install.sh
    ```
 
-   This copies the host to `~/.local/share/ytdlp-downloader/` and writes
-   `~/.mozilla/native-messaging-hosts/dev.firstpick.ytdlp_downloader.json`. Firefox and Zen both read
-   native hosts from `~/.mozilla` (Zen keeps profiles in `~/.zen` but not host manifests). For other
-   forks, pass `--target-dir`, e.g. `--target-dir ~/.librewolf/native-messaging-hosts`. Add
-   `--dry-run` to preview the changes.
+   It does three things:
 
-2. Load the extension. Pick one:
-   - **Temporary** (removed on restart): open `about:debugging#/runtime/this-firefox`, choose
-     **Load Temporary Add-on…**, and select `extension/manifest.json`.
-   - **Permanent, unsigned** (Zen, Firefox Developer Edition/Nightly, LibreWolf): set
-     `xpinstall.signatures.required` to `false` in `about:config`, build the package with
-     `cd extension && zip -r ../ytdlp-downloader.xpi .`, then open the `.xpi` in the browser.
-     Regular Firefox release builds ignore that pref, so there you'd need to sign the add-on on AMO
-     (it can stay unlisted).
+   - **Registers the helper.** It copies the host to `~/.local/share/ytdlp-downloader/` and writes
+     `~/.mozilla/native-messaging-hosts/dev.firstpick.ytdlp_downloader.json`. Firefox and Zen both
+     read native hosts from `~/.mozilla` (Zen keeps profiles in `~/.zen` but not host manifests).
+   - **Optionally allows unsigned add-ons** (it asks; default no). This extension isn't signed by
+     Mozilla, so Zen only keeps it enabled while `xpinstall.signatures.required` is `false`. If you
+     say yes, or pass `--allow-unsigned`, the script adds that pref to `user.js` in every profile in
+     `~/.zen/profiles.ini`. Zen applies `user.js` at every start, so the extension can't get disabled
+     later. This allows **any** unsigned add-on, not only this one.
+   - **Builds `dist/ytdlp-downloader.xpi` and offers to open it** in Zen (it asks; default yes).
+     Zen then shows its own "Add yt-dlp Downloader?" dialog; click **Add**. If the script has just
+     written the pref while Zen is running, it skips this step and tells you to restart Zen first;
+     then open the `.xpi` (drag it onto the window, or ⚙️ → *Install Add-on From File…* in
+     `about:addons`).
 
-3. Open the extension's settings and check the **Native host status** panel. It should show the
+   Non-interactive form: `./native-host/install.sh --allow-unsigned --install-extension`.
+   `--dry-run` previews everything. Other browsers: `--target-dir ~/.librewolf/native-messaging-hosts`,
+   `--profiles-ini ~/.librewolf/profiles.ini`, `--browser librewolf`. Regular Firefox release
+   ignores the signing pref, so there the add-on has to be signed on AMO (it can stay unlisted), or
+   loaded temporarily.
+
+2. Open the extension's settings and check the **Native host status** panel. It should show the
    yt-dlp version and that ffmpeg was found.
+
+**Temporary alternative** (removed when the browser restarts, no signing pref needed): open
+`about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on…**, and select
+`extension/manifest.json`.
+
+**Updating:** pull or edit the code, then run `install.sh` again. It rebuilds the `.xpi` and
+reinstalls it over the old version; your settings stay.
 
 ## Use
 
@@ -53,29 +67,41 @@ Right-click any of these:
 
 - a YouTube video, Short, live, or playlist link on any page
 - a YouTube watch, Shorts, or playlist page
-- the player (YouTube shows its own menu there, so Shift+right-click to get the browser's menu)
+- **the video player itself**: YouTube's own black player menu gets **Download Video** and
+  **Download Audio** at the top. This also works in YouTube players embedded on other sites.
+  (Shift+right-click on the player still opens the browser's menu with the items below.)
 
-Menu items:
+Browser menu items (Zen groups them under **yt-dlp Downloader ▸**):
 
-- **Download Video**: uses your saved defaults, including the default action (video or audio).
-- **Download Audio**: uses your audio settings, whatever the default action is.
+- **Download Video**: saves the video with the Download Video defaults.
+- **Download Audio**: saves only the audio with the Download Audio defaults.
 - **yt-dlp Settings…**
 
-The toolbar button shows how many downloads are running. Its popup lists downloads with progress,
+Nothing pops up when you click; the download starts in the background. The toolbar button shows
+how many downloads are running (in Zen it may sit in the extensions menu; pin it). Its popup lists downloads with progress,
 **Cancel**, and **Open folder**.
 
 ## Settings
 
+**Download Video**
+
 | Setting | Values | Default |
 |---|---|---|
-| Default action | Video / Audio | Video |
-| Video resolution | Best, 2160p, 1440p, 1080p, 720p, 480p, 360p | Best |
-| Preferred video format | Any, MP4, WebM, MKV | MP4 |
-| Audio quality | Best (VBR), 320, 256, 192, 128, 96 kbps | Best |
-| Preferred audio format | Original, MP3, M4A, Opus, FLAC, WAV | MP3 |
-| Save path | absolute or `~/…`; empty = XDG Downloads folder | empty |
+| Resolution | Best, 2160p, 1440p, 1080p, 720p, 480p, 360p | Best |
+| Preferred format | Any, MP4, WebM, MKV | MP4 |
+| Save folder | absolute or `~/…`; empty = XDG Downloads folder | empty |
 | Download playlists | on: playlist links and watch links with `list=` get every item | off |
-| Notifications | start, finish, error | on |
+
+**Download Audio**
+
+| Setting | Values | Default |
+|---|---|---|
+| Quality | Best (VBR), 320, 256, 192, 128, 96 kbps | Best |
+| Preferred format | Original, MP3, M4A, Opus, FLAC, WAV | MP3 |
+| Save folder | absolute or `~/…`; empty = XDG Downloads folder | empty |
+| Download playlists | on: playlist links and watch links with `list=` get every item | off |
+
+**Shared**: notifications on start, finish, and error (default on).
 
 Notes:
 
@@ -86,15 +112,18 @@ Notes:
 - Files are named `Title [videoId].ext`. Playlists go into a subfolder: `Playlist/001 - Title [id].ext`.
   An existing file is never overwritten; the new one becomes `Title [videoId] (2).ext`.
 - While a download runs, its partial files live in a hidden `.ytdlp-downloader-staging` folder inside
-  the save path. The folder is removed when the download finishes or is cancelled.
+  the save folder. The folder is removed when the download finishes or is cancelled.
 - The host runs yt-dlp with `--ignore-config`, so your personal yt-dlp config file doesn't apply.
 - At most two downloads run at once; the rest wait in a queue.
 
 ## Uninstall
 
 ```sh
-./native-host/uninstall.sh   # same --target-dir flags as install
+./native-host/uninstall.sh   # same --target-dir / --profiles-ini flags as install
 ```
+
+This also removes the `user.js` line that `--allow-unsigned` added. The pref itself stays `false`
+until you set it back to `true` in `about:config`.
 
 Then remove the add-on in `about:addons`.
 
