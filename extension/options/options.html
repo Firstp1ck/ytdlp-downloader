@@ -109,14 +109,17 @@
 
       <section class="card" aria-labelledby="host-heading">
         <div class="card-head">
-          <h2 id="host-heading">Native host</h2>
-          <button type="button" class="button" id="host-retry">Retry</button>
+          <h2 id="host-heading">Helper program</h2>
+          <div class="card-actions">
+            <button type="button" class="button" id="show-setup">Setup page</button>
+            <button type="button" class="button" id="host-retry">Retry</button>
+          </div>
         </div>
         <p class="host-summary" id="host-summary" role="status" aria-live="polite">
           <span class="dot" aria-hidden="true"></span><span id="host-summary-text">Checking…</span>
         </p>
         <dl class="host-details" id="host-details" hidden>
-          <dt>Host version</dt>
+          <dt>Helper version</dt>
           <dd id="host-version"></dd>
           <dt>yt-dlp</dt>
           <dd id="host-ytdlp"></dd>

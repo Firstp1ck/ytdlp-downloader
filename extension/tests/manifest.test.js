@@ -144,3 +144,12 @@ test("the content script never sends anything but downloadFromPage", () => {
   // Key events reach YouTube's page-wide shortcuts (Escape left theater mode).
   assert.doesNotMatch(source, /new KeyboardEvent/, "the script never synthesizes key events");
 });
+
+test("the settings page always offers the setup page, not only when something is wrong", () => {
+  const html = fs.readFileSync(path.join(ROOT, "options/options.html"), "utf8");
+  const js = fs.readFileSync(path.join(ROOT, "options/options.js"), "utf8");
+  const button = /<button[^>]*id="show-setup"[^>]*>/.exec(html);
+  assert.ok(button, "a #show-setup button exists");
+  assert.doesNotMatch(button[0], /\bhidden\b/, "it is not hidden by default");
+  assert.match(js, /getElementById\("show-setup"\)\.addEventListener\("click"/);
+});

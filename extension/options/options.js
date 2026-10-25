@@ -297,14 +297,18 @@ async function checkHost() {
 
 retryButton.addEventListener("click", () => void checkHost());
 
-openSetupButton.addEventListener("click", async () => {
+async function openSetupPage() {
   try {
     const result = await browser.runtime.sendMessage({ type: "openSetup" });
     if (!result?.ok) renderHostError(result?.error ?? "Could not open the setup page.");
   } catch (error) {
     renderHostError(`Background page unavailable: ${error.message}`);
   }
-});
+}
+
+openSetupButton.addEventListener("click", () => void openSetupPage());
+// Always available: the page also shows the status checklist when everything works.
+document.getElementById("show-setup").addEventListener("click", () => void openSetupPage());
 
 // ---------------------------------------------------------------------------
 // Start

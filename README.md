@@ -53,7 +53,7 @@ The command (the setup page shows the one matching your installed version) does 
    before setup reports success. If you say no or something fails, the helper is installed anyway
    and the setup page shows what's still missing.
 
-The setup page notices the helper by itself and switches to **Ready**. No browser restart needed.
+The setup page notices the helper by itself and switches to **Ready**. No browser restart needed. You can open it again any time: extension settings → **Helper program** → **Setup page**.
 
 [Read the script first](https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.0/setup.sh)
 if you like (that's the exact file the command runs). Options (add them after `bash -s --`):

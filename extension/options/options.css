@@ -70,6 +70,11 @@ form {
   justify-content: space-between;
 }
 
+.card-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

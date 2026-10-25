@@ -13,8 +13,9 @@ All notable changes to this project. Versions match `extension/manifest.json`.
   YouTube needs; the setup page warns when none is installed.
 - Setup page that opens after installing the extension: shows what's missing, the command with a
   Copy button, and switches to "Ready" by itself once the helper answers.
-- "Open setup" in the settings page and the toolbar popup; the "helper unavailable" notification
-  leads there too.
+- The settings page's "Helper program" card (formerly "Native host") has a **Setup page** button;
+  the popup shows "Set up the helper" when it's missing, and the "native host unavailable"
+  notification leads there too.
 
 ### Changed
 
