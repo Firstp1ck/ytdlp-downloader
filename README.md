@@ -1,5 +1,9 @@
 # ytdlp-downloader
 
+[![CI](https://github.com/Firstp1ck/ytdlp-downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/Firstp1ck/ytdlp-downloader/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Firstp1ck/ytdlp-downloader)](https://github.com/Firstp1ck/ytdlp-downloader/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Right-click a YouTube video in Firefox or Zen and pick **Download Video** or **Download Audio**.
 [yt-dlp](https://github.com/yt-dlp/yt-dlp) downloads it in the background. Each of the two actions
 has its own defaults on the settings page.
@@ -23,11 +27,17 @@ A Zen "mod" can't do this: mods are CSS theme tweaks with no access to processes
 
 ## Install
 
-1. Run the installer from the repository:
+1. Get the code and run the installer:
 
    ```sh
+   git clone https://github.com/Firstp1ck/ytdlp-downloader.git
+   cd ytdlp-downloader
    ./native-host/install.sh
    ```
+
+   No git? Download *Source code* from the [latest release](https://github.com/Firstp1ck/ytdlp-downloader/releases/latest)
+   and unpack it. Each release also has the packaged `ytdlp-downloader-<version>.xpi` attached,
+   but the extension can't download anything without the helper that `install.sh` registers.
 
    It does three things:
 
@@ -58,7 +68,7 @@ A Zen "mod" can't do this: mods are CSS theme tweaks with no access to processes
 `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on…**, and select
 `extension/manifest.json`.
 
-**Updating:** pull or edit the code, then run `install.sh` again. It rebuilds the `.xpi` and
+**Updating:** `git pull` (or download the new release), then run `install.sh` again. It rebuilds the `.xpi` and
 reinstalls it over the old version; your settings stay.
 
 ## Use
@@ -139,3 +149,10 @@ Then remove the add-on in `about:addons`.
 
 - [TECHNICAL.md](TECHNICAL.md): architecture, the native messaging protocol, yt-dlp mapping, security.
 - [DEVELOPMENT.md](DEVELOPMENT.md): repository layout, tests, debugging, packaging.
+- [CHANGELOG.md](CHANGELOG.md): release history.
+
+## License
+
+[MIT](LICENSE). This project only drives [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense)
+and [ffmpeg](https://ffmpeg.org/), which you install separately. Download only content you have
+the right to download, and respect YouTube's terms of service.

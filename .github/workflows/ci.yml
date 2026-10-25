@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Extension tests
+        run: node --test extension/tests
+      - name: Syntax check extension scripts
+        run: for f in $(git ls-files 'extension/*.js'); do node --check "$f"; done
+      - name: Native host tests
+        run: python3 -m unittest discover -s native-host/tests -v
+      - name: Shellcheck
+        run: shellcheck native-host/*.sh
+      - name: Build extension package
+        run: python3 native-host/build_xpi.py extension dist/ytdlp-downloader.xpi
