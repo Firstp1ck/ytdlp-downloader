@@ -33,8 +33,8 @@ usage() {
 Usage: setup.sh [--host-file PATH] [--target-dir DIR ...] [--yes] [--no-deps]
                 [--uninstall] [--dry-run] [--help]
 Registers the helper for Firefox, Zen and other Firefox-based browsers in
-~/.mozilla/native-messaging-hosts, plus ~/.librewolf, ~/.waterfox and ~/.floorp
-when those folders exist; explicit --target-dir values replace these defaults.
+~/.mozilla/native-messaging-hosts, the folder they all read; explicit --target-dir
+values replace it.
 --yes accepts dependency installs; --no-deps skips them. --uninstall removes only
 the helper and its manifests. Warns about Flatpak/Snap browsers it finds.
 Test overrides: YTDLP_SETUP_BASE_URL replaces the release download directory;
@@ -47,17 +47,6 @@ fail() { printf '✗ %s\n' "$*" >&2; exit 1; }
 cleanup() { if [[ -n "$temp_dir" ]]; then rm -rf -- "$temp_dir"; fi; }
 trap cleanup EXIT
 
-
-default_target_dirs() {
-    # Firefox, Zen and most forks read ~/.mozilla; LibreWolf reads ~/.librewolf
-    # (Waterfox/Floorp are unverified). Registering in an existing fork's folder
-    # is harmless when it isn't read.
-    local fork
-    target_dirs=("$HOME/.mozilla/native-messaging-hosts")
-    for fork in .librewolf .waterfox .floorp; do
-        if [[ -d "$HOME/$fork" ]]; then target_dirs+=("$HOME/$fork/native-messaging-hosts"); fi
-    done
-}
 
 sandboxed_browsers() {
     # Print "Name (Flatpak|Snap)" for Firefox-based browsers installed sandboxed.
@@ -461,7 +450,9 @@ parse_args() {
             *) usage >&2; exit 2 ;;
         esac
     done
-    if ((${#target_dirs[@]} == 0)); then default_target_dirs; fi
+    # One folder for all: Firefox's code hard-codes ~/.mozilla, so Zen and other forks
+    # read it, and LibreWolf reads it too since 140 (our minimum version).
+    if ((${#target_dirs[@]} == 0)); then target_dirs=("$HOME/.mozilla/native-messaging-hosts"); fi
 }
 
 main() {

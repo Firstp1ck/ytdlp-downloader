@@ -75,13 +75,14 @@ happen, and `--uninstall` removes the helper.
 | Browser | Status |
 |---|---|
 | Zen (distro package, tarball, AppImage) | tested |
-| Firefox 140+ (release, ESR, Developer Edition, Nightly) | expected to work: same helper folder (`~/.mozilla`) |
-| LibreWolf | expected to work: setup also registers the helper in `~/.librewolf` when that folder exists |
-| Waterfox, Floorp | expected to work: setup also registers in `~/.waterfox` / `~/.floorp` if present (their exact folder is unverified) |
+| Firefox 140+ (release, ESR, Developer Edition, Nightly) | expected to work |
+| LibreWolf 140+, Waterfox, Floorp, other forks | expected to work |
 | Flatpak or Snap builds of any of these | only under conditions: they reach the helper through `xdg-native-messaging-proxy` (browsers based on Firefox 157+, plus the proxy service on your system); Snap Firefox may use its portal. **The setup command checks for sandboxed browsers and tells you what applies.** If it doesn't work, use a non-sandboxed build. |
 
-Before the extension is on addons.mozilla.org, browsers that enforce add-on signing need the
-unsigned-add-on setting below.
+They all read the helper registration from one folder, `~/.mozilla/native-messaging-hosts`: the
+name is hard-coded in Firefox's code, and LibreWolf reads it too since version 140. Before the
+extension is on addons.mozilla.org, browsers that enforce add-on signing need the unsigned-add-on
+setting below.
 
 ### From a git checkout
 

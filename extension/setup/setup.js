@@ -244,6 +244,7 @@ document.getElementById("open-settings").addEventListener("click", () => void br
 
 commandCode.textContent = COMMAND;
 document.getElementById("script-link").href = setupScriptUrl(VERSION);
+document.getElementById("extension-version").textContent = `v${VERSION}`;
 document.getElementById("manual-link").href = MANUAL_INSTALL_URL;
 render(current);
 void check();

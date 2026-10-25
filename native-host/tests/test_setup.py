@@ -517,26 +517,17 @@ class SetupTests(unittest.TestCase):
         self.assertIn("JavaScript runtime is missing (Deno, or Node 22 or newer)", result.stdout)
         self.assertEqual(self.calls()[0], ["sudo", "pacman", "-S", "--needed", "deno", "--noconfirm"])
 
-    def test_existing_fork_folders_get_the_manifest_and_lose_it_on_uninstall(self):
+    def test_only_the_shared_mozilla_folder_by_default(self):
         (self.home / ".librewolf").mkdir()
-        (self.home / ".floorp").mkdir()
         self.run_local("--no-deps")
-        librewolf = self.home / ".librewolf/native-messaging-hosts" / MANIFEST
-        floorp = self.home / ".floorp/native-messaging-hosts" / MANIFEST
-        for manifest in (self.manifest, librewolf, floorp):
-            self.assert_installed(manifest)
-        self.assertFalse((self.home / ".waterfox").exists(), "absent forks are not created")
-        self.run_setup("--uninstall")
-        for manifest in (self.manifest, librewolf, floorp):
-            self.assertFalse(manifest.exists(), manifest)
+        self.assert_installed()
+        self.assertFalse((self.home / ".librewolf/native-messaging-hosts").exists())
 
-    def test_explicit_target_dir_replaces_fork_defaults(self):
-        (self.home / ".librewolf").mkdir()
+    def test_explicit_target_dir_replaces_the_default(self):
         target = self.root / "custom"
         self.run_local("--no-deps", "--target-dir", str(target))
         self.assert_installed(target / MANIFEST)
         self.assertFalse(self.manifest.exists())
-        self.assertFalse((self.home / ".librewolf/native-messaging-hosts").exists())
 
     def test_sandboxed_browsers_are_reported(self):
         flatpak = self.bin / "flatpak"

@@ -205,3 +205,14 @@ a:hover {
 .platform-note {
   padding: 0 4px;
 }
+
+.version-tag {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  vertical-align: middle;
+}

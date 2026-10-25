@@ -344,3 +344,9 @@ test("Copy falls back to selecting the command", async () => {
   assert.equal(page.el("copy-status").dataset.state, "error");
   assert.match(page.el("copy-status").textContent, /press Ctrl\+C/);
 });
+
+test("the header shows the installed extension version", async () => {
+  const page = boot([{ ok: true, pong: READY_PONG }]);
+  await flush();
+  assert.equal(page.el("extension-version").textContent, `v${VERSION}`);
+});

@@ -16,8 +16,7 @@ xpi="$repo_dir/dist/ytdlp-downloader.xpi"
 usage() {
     echo "Usage: $0 [--target-dir DIR ...] [--allow-unsigned | --no-allow-unsigned] [--profiles-ini FILE]"
     echo "          [--install-extension | --no-install-extension] [--browser CMD] [--xpi-out FILE] [--dry-run] [--yes] [--no-deps]"
-    echo 'Explicit target directories replace the defaults: ~/.mozilla/native-messaging-hosts, plus'
-    echo 'native-messaging-hosts in ~/.librewolf, ~/.waterfox and ~/.floorp when those folders exist.'
+    echo 'Explicit target directories replace the default ~/.mozilla/native-messaging-hosts.'
     echo '--allow-unsigned writes xpinstall.signatures.required=false into user.js of every profile'
     echo 'listed in --profiles-ini (default ~/.zen/profiles.ini), so the unsigned .xpi stays enabled.'
     echo 'Always builds dist/ytdlp-downloader.xpi. --install-extension opens it in the browser'

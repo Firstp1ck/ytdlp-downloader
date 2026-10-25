@@ -269,9 +269,10 @@ host. Web pages can't talk to it. Inside that boundary:
   service must be installed on the host) or, for Snap Firefox, its WebExtensions portal. `setup.sh`
   detects sandboxed Firefox-based browsers (`flatpak list`, `snap list`) and reports whether the
   proxy is installed. This hasn't been tested with a real sandboxed browser.
-- Helper folders: `~/.mozilla/native-messaging-hosts` (Firefox, Zen, most forks), plus
-  `~/.librewolf`, `~/.waterfox`, `~/.floorp` when those exist. LibreWolf's folder is documented
-  upstream; Waterfox's and Floorp's are a harmless extra registration.
+- One helper folder for all browsers: `~/.mozilla/native-messaging-hosts`. Firefox hard-codes the
+  name (Zen keeps it, verified in its `libxul.so`), and LibreWolf reads it in addition to its own
+  folder since 140 ([LibreWolf #2308](https://codeberg.org/librewolf/issues/issues/2308)), which is
+  also this extension's minimum version.
 - The download list lives in the background page's memory and is gone after a browser restart.
 - Login-gated or age-restricted videos need cookies, which aren't supported.
 - A cancelled download's partial files are deleted with its staging folder, so it can't resume.
