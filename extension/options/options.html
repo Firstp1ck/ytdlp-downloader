@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>yt-dlp Downloader settings</title>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="page-head">
+        <img src="../icons/icon.svg" alt="" width="36" height="36" />
+        <div>
+          <h1>yt-dlp Downloader</h1>
+          <p class="muted">Defaults for the right-click <strong>Download Video</strong> and <strong>Download Audio</strong> menu.</p>
+        </div>
+        <p class="save-status" id="save-status" role="status" aria-live="polite"></p>
+      </header>
+
+      <form id="settings-form" novalidate>
+        <section class="card" aria-labelledby="mode-heading">
+          <h2 id="mode-heading">Default action</h2>
+          <div class="segmented" id="mode-group" role="radiogroup" aria-labelledby="mode-heading"></div>
+          <p class="hint">“Download Video” uses this action. “Download Audio” always saves audio with the audio settings below.</p>
+        </section>
+
+        <div class="columns">
+          <fieldset class="card" id="video-fields">
+            <legend>Video</legend>
+            <label class="field">
+              <span>Resolution</span>
+              <select id="videoResolution" name="videoResolution"></select>
+            </label>
+            <label class="field">
+              <span>Preferred format</span>
+              <select id="videoFormat" name="videoFormat"></select>
+            </label>
+          </fieldset>
+
+          <fieldset class="card" id="audio-fields">
+            <legend>Audio</legend>
+            <label class="field">
+              <span>Quality</span>
+              <select id="audioQuality" name="audioQuality"></select>
+            </label>
+            <label class="field">
+              <span>Preferred format</span>
+              <select id="audioFormat" name="audioFormat"></select>
+            </label>
+            <p class="hint">Quality applies only when the audio is converted. If YouTube already serves the preferred format, or the format is Original, the stream is saved as-is.</p>
+          </fieldset>
+        </div>
+
+        <section class="card" aria-labelledby="save-heading">
+          <h2 id="save-heading">Save location</h2>
+          <div class="path-row">
+            <label class="visually-hidden" for="saveDir">Default save folder</label>
+            <input
+              type="text"
+              id="saveDir"
+              name="saveDir"
+              spellcheck="false"
+              autocomplete="off"
+              aria-describedby="saveDir-hint saveDir-error"
+            />
+            <button type="button" class="button" id="browse">Browse…</button>
+          </div>
+          <p class="hint" id="saveDir-hint">Leave empty to use the host default. Absolute paths or <code>~/…</code>. Press Enter or leave the field to save.</p>
+          <p class="field-error" id="saveDir-error" role="alert"></p>
+        </section>
+
+        <section class="card" aria-labelledby="behaviour-heading">
+          <h2 id="behaviour-heading">Behaviour</h2>
+          <label class="toggle">
+            <span class="toggle-text">
+              <span>Download playlists</span>
+              <span class="hint">On: playlist links and watch links with a playlist download every item. Off: only the video.</span>
+            </span>
+            <input type="checkbox" id="playlist" name="playlist" role="switch" />
+          </label>
+          <label class="toggle">
+            <span class="toggle-text">
+              <span>Notifications</span>
+              <span class="hint">When a download starts, finishes, or fails. Click a finished one to open its folder.</span>
+            </span>
+            <input type="checkbox" id="notifications" name="notifications" role="switch" />
+          </label>
+        </section>
+      </form>
+
+      <section class="card" aria-labelledby="host-heading">
+        <div class="card-head">
+          <h2 id="host-heading">Native host</h2>
+          <button type="button" class="button" id="host-retry">Retry</button>
+        </div>
+        <p class="host-summary" id="host-summary" role="status" aria-live="polite">
+          <span class="dot" aria-hidden="true"></span><span id="host-summary-text">Checking…</span>
+        </p>
+        <dl class="host-details" id="host-details" hidden>
+          <dt>Host version</dt>
+          <dd id="host-version"></dd>
+          <dt>yt-dlp</dt>
+          <dd id="host-ytdlp"></dd>
+          <dt>ffmpeg</dt>
+          <dd id="host-ffmpeg"></dd>
+          <dt>Folder picker</dt>
+          <dd id="host-picker"></dd>
+          <dt>Default folder</dt>
+          <dd id="host-default-dir"></dd>
+        </dl>
+        <div class="install-hint" id="host-install-hint" hidden>
+          <p>Install the native host from the project folder, restart the browser, then press Retry:</p>
+          <pre><code>./native-host/install.sh</code></pre>
+        </div>
+      </section>
+    </main>
+
+    <script src="../shared/settings.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

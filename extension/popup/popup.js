@@ -1,0 +1,133 @@
+"use strict";
+
+const { STATUS_LABELS, isActive, formatDetail } = globalThis.YtdlpDownloads;
+
+const list = document.getElementById("list");
+const empty = document.getElementById("empty");
+const notice = document.getElementById("notice");
+const clearButton = document.getElementById("clear");
+const template = document.getElementById("item-template");
+
+/** id → rendered <li>; rows are updated in place so focus survives progress ticks. */
+const rows = new Map();
+
+/**
+ * Shows or clears an error banner.
+ * @param {string | null} message
+ */
+function showNotice(message) {
+  notice.textContent = message ?? "";
+  notice.hidden = !message;
+}
+
+/**
+ * Sends a command to the background page and surfaces failures.
+ * @param {object} message
+ * @returns {Promise<object | null>} the reply, or null on failure
+ */
+async function command(message) {
+  try {
+    const result = await browser.runtime.sendMessage(message);
+    if (result && result.ok === false) {
+      showNotice(result.error);
+      return null;
+    }
+    showNotice(null);
+    return result;
+  } catch (error) {
+    showNotice(`Background page unavailable: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * Creates the row for a download id, wiring buttons by id so handlers never hold stale entries.
+ * @param {string} id
+ * @returns {HTMLLIElement}
+ */
+function createRow(id) {
+  const row = template.content.firstElementChild.cloneNode(true);
+  row.dataset.id = id;
+  row.querySelector(".cancel").addEventListener("click", () => void command({ type: "cancel", id }));
+  row.querySelector(".open").addEventListener("click", () => void command({ type: "openFolder", id }));
+  return row;
+}
+
+/**
+ * Updates one row from an entry. All network-sourced text goes through textContent.
+ * @param {HTMLLIElement} row
+ * @param {import("../shared/downloads.js").DownloadEntry} entry
+ */
+function updateRow(row, entry) {
+  const name = entry.title ?? entry.url;
+  const active = isActive(entry);
+  row.dataset.status = entry.status;
+
+  const title = row.querySelector(".title");
+  title.textContent = name;
+  title.title = entry.url;
+
+  const modeLabel = entry.mode === "audio" ? "Audio" : "Video";
+  row.querySelector(".status").textContent = `${STATUS_LABELS[entry.status] ?? entry.status} · ${modeLabel}`;
+  row.querySelector(".detail").textContent = formatDetail(entry);
+  row.querySelector(".error").textContent = entry.status === "error" ? (entry.error ?? "") : "";
+
+  const progress = row.querySelector("progress");
+  progress.hidden = !active;
+  progress.setAttribute("aria-label", `Progress for ${name}`);
+  if (entry.percent === null) progress.removeAttribute("value");
+  else progress.value = entry.percent;
+
+  const cancel = row.querySelector(".cancel");
+  cancel.hidden = !active;
+  cancel.setAttribute("aria-label", `Cancel ${name}`);
+
+  const open = row.querySelector(".open");
+  open.hidden = entry.status !== "finished";
+  open.setAttribute("aria-label", `Open folder of ${name}`);
+}
+
+/**
+ * Reconciles the list with the background's download snapshot (newest first).
+ * @param {object[]} downloads
+ */
+function render(downloads) {
+  const seen = new Set();
+  let previous = null;
+  for (const entry of downloads) {
+    seen.add(entry.id);
+    let row = rows.get(entry.id);
+    if (!row) {
+      row = createRow(entry.id);
+      rows.set(entry.id, row);
+    }
+    updateRow(row, entry);
+    const expectedPosition = previous ? previous.nextElementSibling : list.firstElementChild;
+    if (row !== expectedPosition) list.insertBefore(row, expectedPosition);
+    previous = row;
+  }
+  for (const [id, row] of rows) {
+    if (!seen.has(id)) {
+      row.remove();
+      rows.delete(id);
+    }
+  }
+  empty.hidden = downloads.length > 0;
+  clearButton.hidden = !downloads.some((entry) => !isActive(entry));
+}
+
+document.getElementById("open-settings").addEventListener("click", async () => {
+  await browser.runtime.openOptionsPage();
+  window.close();
+});
+
+clearButton.addEventListener("click", () => void command({ type: "clearInactive" }));
+
+browser.runtime.onMessage.addListener((message) => {
+  if (message?.type === "state" && Array.isArray(message.downloads)) render(message.downloads);
+});
+
+(async () => {
+  const state = await command({ type: "getState" });
+  render(state?.downloads ?? []);
+})();

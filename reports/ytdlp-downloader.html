@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>ytdlp-downloader: build report</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1220; --panel: #121c2d; --panel-2: #18253a; --text: #e8eef8; --muted: #a9b7cb;
+      --line: #2b3b55; --green: #50d890; --yellow: #f7c65c; --red: #ff7373; --blue: #65b5ff;
+      --code: #07101c; --radius-lg: 16px; --radius-md: 12px; --shadow: 0 14px 36px rgb(0 0 0 / 22%);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 15% 0%, #142848 0, transparent 35rem), var(--bg);
+      color: var(--text);
+      font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    a { color: var(--blue); }
+    a:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+    .skip-link { position: fixed; top: 8px; left: 8px; transform: translateY(-160%); background: var(--blue); color: #06111f; padding: 8px 12px; border-radius: 8px; font-weight: 800; z-index: 20; }
+    .skip-link:focus { transform: none; }
+    main { width: min(1120px, calc(100% - 32px)); margin: 36px auto 64px; }
+    header, .report-section { background: color-mix(in srgb, var(--panel) 94%, transparent); border: 1px solid var(--line); border-radius: var(--radius-lg); box-shadow: var(--shadow); }
+    header { padding: 30px; margin-bottom: 20px; }
+    .report-section { padding: 24px; margin: 18px 0; }
+    h1, h2, h3 { line-height: 1.25; margin-top: 0; }
+    h1 { font-size: clamp(1.9rem, 5vw, 3rem); margin-bottom: 8px; letter-spacing: -.025em; }
+    h2 { font-size: 1.45rem; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+    h3 { font-size: 1.08rem; margin-bottom: 6px; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    code { background: var(--code); padding: .12em .38em; border-radius: 5px; }
+    pre { background: var(--code); border: 1px solid var(--line); border-radius: 10px; padding: 14px; overflow-x: auto; white-space: pre-wrap; }
+    .muted { color: var(--muted); }
+    .lead { font-size: 1.1rem; max-width: 80ch; }
+    nav.toc { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    nav.toc a { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; text-decoration: none; background: var(--panel-2); font-size: .9rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+    .metric, .step, .visual-card { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-md); padding: 16px; }
+    .metric strong { display: block; font-size: 1.35rem; }
+    .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .76rem; font-weight: 750; letter-spacing: .035em; white-space: nowrap; }
+    .ok { background: rgb(80 216 144 / 15%); color: var(--green); border: 1px solid rgb(80 216 144 / 40%); }
+    .warn { background: rgb(247 198 92 / 14%); color: var(--yellow); border: 1px solid rgb(247 198 92 / 40%); }
+    .bad { background: rgb(255 115 115 / 14%); color: var(--red); border: 1px solid rgb(255 115 115 / 40%); }
+    .info { background: rgb(101 181 255 / 14%); color: var(--blue); border: 1px solid rgb(101 181 255 / 40%); }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .94rem; }
+    th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 700; background: var(--panel-2); }
+    .callout { border-left: 4px solid var(--yellow); background: rgb(247 198 92 / 8%); padding: 12px 16px; border-radius: 8px; margin: 14px 0; }
+    figure { margin: 0; }
+    figcaption { color: var(--muted); font-size: .9rem; margin-top: 8px; }
+    svg text { font-family: system-ui, sans-serif; }
+    ol.steps { padding-left: 1.3rem; }
+    ol.steps li { margin: 6px 0; }
+    @media (max-width: 640px) {
+      header, .report-section { padding: 18px; }
+      th, td { padding: 7px; }
+    }
+    @media print {
+      body { background: #fff; color: #000; }
+      header, .report-section { box-shadow: none; border-color: #999; background: #fff; break-inside: avoid-page; }
+      .skip-link, nav.toc { display: none; }
+      a { color: #000; }
+      th { background: #eee; color: #000; }
+      code, pre { background: #f3f3f3; color: #000; }
+    }
+  </style>
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<main id="content">
+  <header>
+    <p class="muted">Build report · 2026-10-25 · plan <code>plans/planned/ytdlp-downloader.md</code> (archived to <code>plans/archive/</code> on completion, git-ignored)</p>
+    <h1>ytdlp-downloader</h1>
+    <p class="lead">A Firefox/Zen WebExtension plus a local Python native messaging host. Right-click a YouTube
+      video, pick <strong>Download Video</strong>, and yt-dlp downloads it in the background using defaults from a
+      settings page. Both halves are built, integrated, independently reviewed twice, and fixed. All automated checks pass. Loading the add-on in a real browser is the one acceptance step left to the user.</p>
+    <div class="grid" style="margin-top:18px">
+      <div class="metric"><span class="muted">Host tests</span><strong>36 / 36</strong><span class="badge ok">pass</span></div>
+      <div class="metric"><span class="muted">Extension tests</span><strong>81 / 81</strong><span class="badge ok">pass</span></div>
+      <div class="metric"><span class="muted">Review findings</span><strong>15</strong><span class="badge info">13 fixed · 1 docs · 1 rejected</span></div>
+      <div class="metric"><span class="muted">Real-browser check</span><strong>pending</strong><span class="badge warn">user step</span></div>
+    </div>
+    <nav class="toc" aria-label="Sections">
+      <a href="#overview">Overview</a><a href="#architecture">Architecture</a><a href="#decisions">Decisions</a>
+      <a href="#implementation">Implementation</a><a href="#evidence">Evidence</a><a href="#review">Review</a>
+      <a href="#risks">Risks</a><a href="#usage">Usage</a>
+    </nav>
+  </header>
+
+  <section class="report-section" id="overview" aria-labelledby="overview-h">
+    <h2 id="overview-h">Overview</h2>
+    <div class="table-wrap">
+      <table data-overview>
+        <thead><tr><th>Area</th><th>Outcome</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>Approach</td><td>WebExtension + native messaging host. A Zen mod can't start processes.</td><td><span class="badge ok">decided</span></td></tr>
+          <tr><td>WS1 native host</td><td>Python stdlib host: validation, argv mapping, queue (2 slots), cancel, EOF cleanup, picker, xdg-open. Built by Codex gpt-6.1-sol.</td><td><span class="badge ok">done</span></td></tr>
+          <tr><td>WS2 extension</td><td>MV2: context menus, settings page, popup with progress/cancel, badge, notifications. Built by Claude Opus 5.5.</td><td><span class="badge ok">done</span></td></tr>
+          <tr><td>WS3 integration</td><td>Extension options fed to the installed host, giving real mp4 + opus downloads. Docs written.</td><td><span class="badge ok">done</span></td></tr>
+          <tr><td>Independent review</td><td>Claude Fable 5.1 and Codex gpt-6-astra, read-only. 2 high, 5 medium findings, all addressed.</td><td><span class="badge ok">done</span></td></tr>
+          <tr><td>Browser acceptance</td><td>Load in Zen via <code>about:debugging</code>, right-click, settings round trip.</td><td><span class="badge warn">not run</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 id="architecture" style="margin-top:22px">Architecture</h3>
+    <figure class="visual-card" data-visual-kind="diagram" data-purpose="Show how a right-click becomes a yt-dlp process and a published file">
+      <svg viewBox="0 0 900 270" width="100%" role="img" aria-labelledby="arch-title arch-desc">
+        <title id="arch-title">Component flow</title>
+        <desc id="arch-desc">The context menu in the browser triggers background.js, which sends a JSON download request over a native messaging port to ytdlp_host.py. The host runs yt-dlp into a per-job staging folder, then moves finished files into the save folder and reports progress and results back.</desc>
+        <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#65b5ff"/></marker></defs>
+        <rect x="10" y="20" width="400" height="230" rx="14" fill="none" stroke="#2b3b55" stroke-dasharray="6 5"/>
+        <text x="24" y="44" fill="#a9b7cb" font-size="13">Browser (Firefox / Zen)</text>
+        <rect x="30" y="64" width="150" height="54" rx="10" fill="#18253a" stroke="#2b3b55"/><text x="105" y="96" fill="#e8eef8" font-size="14" text-anchor="middle">Context menu</text>
+        <rect x="230" y="64" width="160" height="54" rx="10" fill="#18253a" stroke="#65b5ff"/><text x="310" y="96" fill="#e8eef8" font-size="14" text-anchor="middle">background.js</text>
+        <rect x="30" y="170" width="150" height="54" rx="10" fill="#18253a" stroke="#2b3b55"/><text x="105" y="195" fill="#e8eef8" font-size="14" text-anchor="middle">Settings page</text><text x="105" y="213" fill="#a9b7cb" font-size="12" text-anchor="middle">storage.local</text>
+        <rect x="230" y="170" width="160" height="54" rx="10" fill="#18253a" stroke="#2b3b55"/><text x="310" y="202" fill="#e8eef8" font-size="14" text-anchor="middle">Popup · badge</text>
+        <line x1="180" y1="91" x2="226" y2="91" stroke="#65b5ff" stroke-width="2" marker-end="url(#arr)"/>
+        <line x1="150" y1="170" x2="250" y2="122" stroke="#65b5ff" stroke-width="2" marker-end="url(#arr)"/>
+        <line x1="310" y1="122" x2="310" y2="166" stroke="#65b5ff" stroke-width="2" marker-end="url(#arr)"/>
+        <rect x="490" y="64" width="170" height="54" rx="10" fill="#18253a" stroke="#50d890"/><text x="575" y="96" fill="#e8eef8" font-size="14" text-anchor="middle">ytdlp_host.py</text>
+        <line x1="390" y1="84" x2="486" y2="84" stroke="#65b5ff" stroke-width="2" marker-end="url(#arr)"/>
+        <line x1="486" y1="100" x2="394" y2="100" stroke="#50d890" stroke-width="2" marker-end="url(#arr)"/>
+        <text x="438" y="76" fill="#a9b7cb" font-size="11" text-anchor="middle">download</text>
+        <text x="438" y="116" fill="#a9b7cb" font-size="11" text-anchor="middle">progress</text>
+        <rect x="720" y="64" width="160" height="54" rx="10" fill="#18253a" stroke="#2b3b55"/><text x="800" y="90" fill="#e8eef8" font-size="14" text-anchor="middle">yt-dlp</text><text x="800" y="107" fill="#a9b7cb" font-size="12" text-anchor="middle">+ ffmpeg</text>
+        <line x1="660" y1="91" x2="716" y2="91" stroke="#65b5ff" stroke-width="2" marker-end="url(#arr)"/>
+        <rect x="690" y="160" width="200" height="40" rx="10" fill="#18253a" stroke="#2b3b55"/><text x="790" y="185" fill="#e8eef8" font-size="12" text-anchor="middle">staging/&lt;job&gt;/</text>
+        <rect x="490" y="200" width="170" height="40" rx="10" fill="#18253a" stroke="#50d890"/><text x="575" y="225" fill="#e8eef8" font-size="13" text-anchor="middle">save folder</text>
+        <line x1="800" y1="118" x2="800" y2="156" stroke="#65b5ff" stroke-width="2" marker-end="url(#arr)"/>
+        <line x1="690" y1="190" x2="664" y2="214" stroke="#50d890" stroke-width="2" marker-end="url(#arr)"/>
+        <text x="700" y="232" fill="#a9b7cb" font-size="11">move, never overwrite</text>
+      </svg>
+      <figcaption>Data flow. The native port carries framed JSON over stdio. Full protocol in <code>TECHNICAL.md</code>.</figcaption>
+    </figure>
+  </section>
+
+  <section class="report-section" id="decisions" aria-labelledby="dec-h">
+    <h2 id="dec-h">Design decisions</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Decision</th><th>Reason</th><th>Evidence</th></tr></thead>
+      <tbody>
+        <tr><td>Extension + native host, not a Zen mod</td><td>Mods are CSS only; userChrome.js loaders are unsupported.</td><td>Zen mod model; native messaging is the supported route</td></tr>
+        <tr><td>Host manifest in <code>~/.mozilla/native-messaging-hosts</code></td><td>Zen reads from there, as Firefox does.</td><td>Only <code>.mozilla</code> appears in Zen 1.23.4b <code>libxul.so</code>; <code>~/.zen</code> holds profiles</td></tr>
+        <tr><td>MV2, persistent background, long-lived port</td><td>Keeps the port and the yt-dlp process alive for the whole download.</td><td><code>sendNativeMessage</code> ends the host after one reply</td></tr>
+        <tr><td>Enumerated options only, <code>--ignore-config</code></td><td>No option injection from storage or ambient config.</td><td>Host rejects unknown keys and values</td></tr>
+        <tr><td>Per-job staging, publish without overwrite</td><td>Fixes the file-loss bug found in review.</td><td>Review finding #1, re-run repro</td></tr>
+        <tr><td>Unsigned install works in Zen</td><td><code>xpinstall.signatures.required=false</code> is honored.</td><td><code>MOZ_REQUIRE_SIGNING: false</code> in Zen's <code>AppConstants.sys.mjs</code></td></tr>
+      </tbody>
+    </table></div>
+    <h3 id="implementation" style="margin-top:22px">Implementation map</h3>
+    <div class="grid">
+      <div class="step"><h3>native-host/</h3><p><code>ytdlp_host.py</code> (protocol, argv, jobs, publishing), <code>install.sh</code>/<code>uninstall.sh</code> with <code>--target-dir</code> and <code>--dry-run</code>, a stdlib unittest suite.</p></div>
+      <div class="step"><h3>extension/</h3><p><code>background.js</code>, <code>shared/settings.js</code> (the only defaults), <code>shared/youtube.js</code> (URL classification), <code>shared/downloads.js</code>, options page, popup, node:test suite.</p></div>
+      <div class="step"><h3>Docs</h3><p><code>README.md</code> (users), <code>TECHNICAL.md</code> (architecture, protocol, security), <code>DEVELOPMENT.md</code> (layout, tests, packaging).</p></div>
+    </div>
+  </section>
+
+  <section class="report-section" id="evidence" aria-labelledby="ev-h">
+    <h2 id="ev-h">Testing and acceptance evidence</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Check</th><th>Result</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><code>python3 -m unittest discover -s native-host/tests</code></td><td>36 tests OK: framing, validation, 4,032 argv combos, publishing, real subprocess runs with cancel/EOF</td><td><span class="badge ok">pass</span></td></tr>
+        <tr><td>2</td><td><code>node --test extension/tests</code></td><td>81 pass, including a cross-language test that the host's enums equal the extension's</td><td><span class="badge ok">pass</span></td></tr>
+        <tr><td>3</td><td>Framed ping/pong against the host</td><td>yt-dlp 2026.10.21 and ffmpeg found, picker zenity</td><td><span class="badge ok">pass</span></td></tr>
+        <tr><td>4</td><td>Real downloads through the host</td><td>mp4 720, mp3 192 (WS1); mp4 360 + opus 128 from extension-built options (WS3); 2× same webm + audio at once → <code>.webm</code>, <code>(2).webm</code>, <code>.opus</code>, staging cleaned</td><td><span class="badge ok">pass</span></td></tr>
+        <tr><td>5</td><td>Install/uninstall into isolated HOME + target dir</td><td>Manifest path absolute and executable, <code>allowed_extensions</code> correct, nothing left after uninstall</td><td><span class="badge ok">pass</span></td></tr>
+        <tr><td>6</td><td>Load in Zen via <code>about:debugging</code></td><td>Real add-on loading isn't automated here</td><td><span class="badge warn">not run</span></td></tr>
+        <tr><td>7</td><td>Menu + settings round trip in a real browser</td><td>Covered by vm-based background tests and headless Zen screenshots against a fake API (WS2)</td><td><span class="badge warn">partial</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="report-section" id="review" aria-labelledby="rev-h">
+    <h2 id="rev-h">Independent review findings</h2>
+    <p class="muted">R1 = Claude Fable 5.1, R2 = Codex gpt-6-astra. Both read-only with fresh context. Every finding was checked by the integration owner before disposition.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Run</th><th>Severity</th><th>Finding</th><th>Disposition</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>R2</td><td><span class="badge bad">high</span></td><td>Jobs shared filenames; <code>-x</code> deleted a finished same-name video; concurrent <code>.part</code> race</td><td>Fixed: per-job staging + collision-safe publish; repro re-run passes</td></tr>
+        <tr><td>2</td><td>R1</td><td><span class="badge bad">high</span></td><td>Playlist setting on → plain videos saved as <code>NA/NA - Title</code></td><td>Fixed: playlist only for URLs with a list id; test added</td></tr>
+        <tr><td>3</td><td>R1</td><td><span class="badge warn">medium</span></td><td>Audio "Original" needs ffprobe but wasn't gated</td><td>Fixed: ffmpeg required for every job</td></tr>
+        <tr><td>4</td><td>R2</td><td><span class="badge warn">medium</span></td><td>Overlapping settings saves lose a change</td><td>Fixed: serialized saves; tests added</td></tr>
+        <tr><td>5</td><td>R2</td><td><span class="badge warn">medium</span></td><td>Huge playlist file list could exceed Firefox's 1 MB message limit</td><td>Fixed: 100-path cap + <code>fileCount</code></td></tr>
+        <tr><td>6</td><td>R2</td><td><span class="badge warn">medium</span></td><td>Audio bitrate ignored when the codec already matches</td><td>Documented (yt-dlp behavior); UI hint added</td></tr>
+        <tr><td>7</td><td>R2</td><td><span class="badge info">low</span></td><td>README overstated "upper limit" for resolution</td><td>Fixed wording</td></tr>
+        <tr><td>8</td><td>R1</td><td><span class="badge info">low</span></td><td><code>openPath</code> could open files (<code>.desktop</code>)</td><td>Fixed: folders only</td></tr>
+        <tr><td>9</td><td>R1</td><td><span class="badge info">low</span></td><td>Ping blocked the message loop</td><td>Fixed: worker thread</td></tr>
+        <tr><td>10</td><td>R1</td><td><span class="badge info">low</span></td><td>"Download Video" can produce audio</td><td>Rejected: user asked that the settings decide this</td></tr>
+        <tr><td>11</td><td>R1</td><td><span class="badge info">low</span></td><td>Cancel racing completion relabels a finished job</td><td>Fixed: exited job → <code>unknown_id</code></td></tr>
+        <tr><td>12–15</td><td>R1</td><td><span class="badge info">low/nit</span></td><td>Missing report, handoff drift, WARNING noise in errors, audio quality hint</td><td>Report written; handoffs left as history; ERROR lines preferred; hint added</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="report-section" id="risks" aria-labelledby="risk-h">
+    <h2 id="risk-h">Residual risks and limitations</h2>
+    <ul>
+      <li><strong>YouTube changes</strong> can break yt-dlp at any time. Update yt-dlp; the settings page shows its version.</li>
+      <li><strong>Firefox release</strong> enforces signing, so a permanent install there needs AMO (unlisted) signing. Zen, Developer Edition, Nightly, and LibreWolf can use the unsigned <code>.xpi</code>.</li>
+      <li><strong>Not covered:</strong> Flatpak/Snap browsers, Windows/macOS, cookies for login-gated videos, resuming a cancelled download.</li>
+      <li>The download list is in memory and gone after a browser restart. Two options tabs saving at the same moment can still race (low).</li>
+      <li>Real playlist downloads weren't run end to end. The argv and the playlist URL logic are unit-tested.</li>
+    </ul>
+    <h3 id="usage" style="margin-top:22px">Next steps</h3>
+    <ol class="steps">
+      <li>Run <code>./native-host/install.sh</code> from the repository.</li>
+      <li>In Zen: <code>about:debugging#/runtime/this-firefox</code> → <strong>Load Temporary Add-on…</strong> → <code>extension/manifest.json</code>.</li>
+      <li>Open the add-on's settings and check that the Native host status panel shows yt-dlp and ffmpeg.</li>
+      <li>Right-click a YouTube thumbnail → <strong>Download Video</strong>, and watch the toolbar popup.</li>
+      <li>For a permanent install in Zen, set <code>xpinstall.signatures.required=false</code> and install the zipped <code>.xpi</code> (see <code>DEVELOPMENT.md</code>).</li>
+    </ol>
+    <div class="callout">Source of truth: the code and <code>TECHNICAL.md</code>. This report is a snapshot of the 2026-10-25 build.</div>
+  </section>
+</main>
+</body>
+</html>

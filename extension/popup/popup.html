@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>yt-dlp downloads</title>
+    <link rel="stylesheet" href="../shared/theme.css" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="head">
+      <h1>Downloads</h1>
+      <div class="head-actions">
+        <button type="button" class="button quiet" id="clear" hidden>Clear finished</button>
+        <button type="button" class="button quiet" id="open-settings">Settings</button>
+      </div>
+    </header>
+
+    <p class="notice" id="notice" role="alert" hidden></p>
+
+    <div class="empty" id="empty" hidden>
+      <p>No downloads yet.</p>
+      <p class="muted">Right-click a YouTube video, Short, or link and choose <strong>Download Video</strong>.</p>
+    </div>
+
+    <ul class="list" id="list" aria-label="Downloads"></ul>
+
+    <template id="item-template">
+      <li class="item">
+        <div class="item-main">
+          <p class="title"></p>
+          <p class="meta"><span class="status"></span><span class="detail"></span></p>
+          <progress max="100"></progress>
+          <p class="error"></p>
+        </div>
+        <div class="item-actions">
+          <button type="button" class="button cancel">Cancel</button>
+          <button type="button" class="button open">Open folder</button>
+        </div>
+      </li>
+    </template>
+
+    <script src="../shared/downloads.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

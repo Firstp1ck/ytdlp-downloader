@@ -1,0 +1,148 @@
+/* Shared tokens and base controls for the popup and options page. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f6f6f7;
+  --surface: #ffffff;
+  --surface-muted: #f0f0f2;
+  --text: #1b1b1f;
+  --muted: #65656f;
+  --border: #e2e2e6;
+  --accent: #d93f45;
+  --accent-hover: #c2353b;
+  --accent-text: #ffffff;
+  --ok: #23854f;
+  --warn: #a8670a;
+  --danger: #c9282e;
+  --focus: #3b82f6;
+  --radius: 10px;
+  --radius-small: 7px;
+  --font: system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
+  --mono: ui-monospace, "JetBrains Mono", "Fira Code", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151517;
+    --surface: #1e1e21;
+    --surface-muted: #26262a;
+    --text: #ececef;
+    --muted: #a1a1aa;
+    --border: #303036;
+    --accent: #ef5f64;
+    --accent-hover: #f47a7e;
+    --accent-text: #19090a;
+    --ok: #4cc283;
+    --warn: #e2a53a;
+    --danger: #f2696e;
+    --focus: #7aa7ff;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.45 var(--font);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.button.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.button.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+}
+
+.button.quiet:hover:not(:disabled) {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+progress {
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+/* Gecko fills an indeterminate bar completely, which reads as "done"; stripes read as "waiting". */
+progress:indeterminate::-moz-progress-bar {
+  background: repeating-linear-gradient(-45deg, var(--accent) 0 6px, transparent 6px 12px);
+  opacity: 0.45;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

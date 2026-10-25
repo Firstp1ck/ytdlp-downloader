@@ -1,0 +1,33 @@
+{
+  "manifest_version": 2,
+  "name": "yt-dlp Downloader",
+  "version": "1.0.0",
+  "description": "Right-click a YouTube video, Short, or playlist and download it with yt-dlp through a local native messaging host.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "ytdlp-downloader@firstpick.dev",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  },
+  "icons": {
+    "48": "icons/icon.svg",
+    "96": "icons/icon.svg"
+  },
+  "permissions": ["menus", "nativeMessaging", "storage", "notifications"],
+  "background": {
+    "scripts": ["shared/settings.js", "shared/youtube.js", "shared/downloads.js", "background.js"],
+    "persistent": true
+  },
+  "browser_action": {
+    "default_title": "yt-dlp downloads",
+    "default_popup": "popup/popup.html",
+    "default_icon": "icons/icon.svg"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  }
+}

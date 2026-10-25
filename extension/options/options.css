@@ -1,0 +1,299 @@
+.page {
+  display: grid;
+  gap: 14px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+
+.page-head h1 {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.save-status {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.save-status[data-state="saved"] {
+  color: var(--ok);
+}
+
+.save-status[data-state="error"] {
+  color: var(--danger);
+}
+
+form {
+  display: grid;
+  gap: 14px;
+}
+
+.card {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.card h2,
+.card legend {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* A legend inside a grid fieldset escapes the grid; float puts it back into the flow. */
+.card legend {
+  float: left;
+  width: 100%;
+  padding: 0;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.card.is-default legend::after {
+  content: " · default";
+  color: var(--accent, currentColor);
+}
+
+.field {
+  display: grid;
+  gap: 5px;
+}
+
+.field > span {
+  font-size: 13px;
+}
+
+select,
+input[type="text"] {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+input[type="text"] {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.95em;
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 12.5px;
+}
+
+.field-error:empty {
+  display: none;
+}
+
+.segmented {
+  position: relative;
+  display: inline-flex;
+  justify-self: start;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--bg);
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.segmented label {
+  min-width: 84px;
+  padding: 5px 14px;
+  border-radius: 5px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.segmented input:checked + label {
+  background: var(--accent);
+  color: var(--accent-text);
+}
+
+.segmented input:focus-visible + label {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.path-row {
+  display: flex;
+  gap: 8px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+}
+
+.toggle + .toggle {
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.toggle-text {
+  display: grid;
+  gap: 2px;
+}
+
+.toggle input {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+}
+
+.toggle input::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+}
+
+/* Animate only user changes; the initial load must not slide every switch into place. */
+.ready .toggle input {
+  transition: background 120ms ease;
+}
+
+.ready .toggle input::after {
+  transition: transform 120ms ease;
+}
+
+.toggle input:checked {
+  background: var(--accent);
+}
+
+.toggle input:checked::after {
+  transform: translateX(16px);
+}
+
+.host-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.dot {
+  flex: none;
+  margin-top: 0.45em;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.host-summary[data-state="ok"] .dot {
+  background: var(--ok);
+}
+
+.host-summary[data-state="warn"] .dot {
+  background: var(--warn);
+}
+
+.host-summary[data-state="error"] .dot {
+  background: var(--danger);
+}
+
+.host-details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.host-details dt {
+  color: var(--muted);
+}
+
+.host-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.host-details dd .missing {
+  color: var(--danger);
+}
+
+.install-hint {
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+
+pre {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-small);
+  background: var(--surface-muted);
+  overflow-x: auto;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
