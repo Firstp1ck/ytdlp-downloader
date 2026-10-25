@@ -206,35 +206,48 @@ class SetupTests(unittest.TestCase):
         self.assert_installed()
 
     def test_dependency_commands_per_distro_and_like(self):
+        ytdlp_urls = ["https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux",
+                      "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS"]
+        pacman = ["pacman", "-S", "--needed", "yt-dlp", "ffmpeg"]
+        dnf = ["dnf", "install", "-y", "yt-dlp", "ffmpeg-free"]
+        zypper = ["zypper", "install", "-y", "yt-dlp", "ffmpeg"]
+        apt_update, apt_install = ["apt-get", "update"], ["apt-get", "install", "-y", "ffmpeg"]
+        # (os-release, privileged commands in order, standalone yt-dlp downloaded?)
         cases = [
-            ('ID=arch', ["pacman", "-S", "--needed", "yt-dlp", "ffmpeg"]),
-            ('ID=derivative\nID_LIKE="arch linux"', ["pacman", "-S", "--needed", "yt-dlp", "ffmpeg"]),
-            ('ID=fedora\nID_LIKE=debian', ["dnf", "install", "-y", "yt-dlp", "ffmpeg-free"]),
-            ('ID=derivative\nID_LIKE="rhel fedora"', ["dnf", "install", "-y", "yt-dlp", "ffmpeg-free"]),
-            ('ID=opensuse-tumbleweed', ["zypper", "install", "-y", "yt-dlp", "ffmpeg"]),
-            ('ID=derivative\nID_LIKE="suse"', ["zypper", "install", "-y", "yt-dlp", "ffmpeg"]),
-            ('ID=debian', ["apt-get", "install", "-y", "ffmpeg"]),
-            ('ID=ubuntu\nID_LIKE=debian', ["apt-get", "install", "-y", "ffmpeg"]),
+            ('ID=arch', [pacman], False),
+            ('ID=derivative\nID_LIKE="arch linux"', [pacman], False),
+            ('ID=fedora\nID_LIKE=debian', [dnf], False),
+            ('ID=nobara\nID_LIKE=fedora', [dnf], False),
+            ('ID=opensuse-tumbleweed', [zypper], False),
+            ('ID=derivative\nID_LIKE="suse"', [zypper], False),
+            # apt-get update first: a clean Debian 13 container had no package lists.
+            ('ID=debian', [apt_update, apt_install], True),
+            ('ID=ubuntu\nID_LIKE=debian', [apt_update, apt_install], True),
+            # RHEL rebuilds: no yt-dlp/ffmpeg in their repos, so no dnf call at all.
+            ('ID=rocky\nID_LIKE="rhel centos fedora"', [], True),
+            ('ID=almalinux\nID_LIKE="rhel centos fedora"', [], True),
+            ('ID=centos\nID_LIKE="rhel fedora"', [], True),
         ]
-        for release, command in cases:
+        for release, commands, standalone in cases:
             with self.subTest(release=release):
                 self.log.unlink(missing_ok=True)
                 shutil.rmtree(self.home / ".local", ignore_errors=True)
                 self.os_release.write_text(release + "\n")
                 result = self.run_local("--yes")
                 calls = self.calls()
-                # pacman gets --noconfirm only when run after consent; the shown command stays interactive.
-                executed = command + (["--noconfirm"] if command[0] == "pacman" else [])
-                self.assertEqual(calls[:2], [["sudo", *executed], executed])
-                self.assertIn("Run: " + " ".join(["sudo", *command]) + "\n", result.stdout)
-                if command[0] == "apt-get":
-                    self.assertEqual(calls[2][0], "curl")
-                    self.assertEqual(calls[2][-1], "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux")
-                    self.assertEqual(calls[3][-1], "https://github.com/yt-dlp/yt-dlp/releases/latest/download/SHA2-256SUMS")
-                    self.assertEqual(len(calls), 4)
+                expected = []
+                for command in commands:
+                    # pacman gets --noconfirm only when run after consent; the shown command stays interactive.
+                    executed = command + (["--noconfirm"] if command[0] == "pacman" else [])
+                    expected += [["sudo", *executed], executed]
+                    self.assertIn("Run: " + " ".join(["sudo", *command]) + "\n", result.stdout)
+                self.assertEqual(calls[:len(expected)], expected)
+                downloads = [call[-1] for call in calls[len(expected):]]
+                self.assertEqual(downloads, ytdlp_urls if standalone else [])
+                if standalone:
                     self.assertTrue(os.access(self.home / ".local/bin/yt-dlp", os.X_OK))
-                else:
-                    self.assertEqual(len(calls), 2)
+                if "rhel" in release:
+                    self.assertIn("RPM Fusion", result.stdout)
 
     def test_no_controlling_tty_never_installs_or_hangs(self):
         self.os_release.write_text("ID=arch\n")
@@ -287,7 +300,8 @@ class SetupTests(unittest.TestCase):
         self.os_release.write_text("ID=debian\n")
         self.fake("yt-dlp")
         self.run_local("--yes")
-        self.assertEqual(self.calls(), [["sudo", "apt-get", "install", "-y", "ffmpeg"],
+        self.assertEqual(self.calls(), [["sudo", "apt-get", "update"], ["apt-get", "update"],
+                                        ["sudo", "apt-get", "install", "-y", "ffmpeg"],
                                         ["apt-get", "install", "-y", "ffmpeg"]])
         (self.bin / "yt-dlp").unlink()
         self.fake("ffmpeg")
@@ -472,21 +486,36 @@ class SetupTests(unittest.TestCase):
         self.run_local("--yes")
         self.assertEqual(self.calls()[0], ["sudo", "pacman", "-S", "--needed", "yt-dlp", "ffmpeg", "deno", "--noconfirm"])
 
+    def node_fake(self, path, version):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"#!/bin/sh\necho {version}\n")
+        path.chmod(0o755)
+
     def test_runtime_discovery_avoids_deno_install(self):
         (self.bin / "deno").unlink()
         self.fake("yt-dlp")
         self.fake("ffmpeg")
-        for directory, name in ((self.bin, "node"), (self.home / ".local/bin", "bun"),
-                                (self.home / ".deno/bin", "deno")):
-            with self.subTest(directory=directory, name=name):
-                directory.mkdir(parents=True, exist_ok=True)
-                path = directory / name
-                path.write_text("#!/bin/sh\nexit 0\n")
-                path.chmod(0o755)
+        found = [(self.home / ".deno/bin/deno", "v2.9.8"), (self.bin / "node", "v22.1.0"),
+                 (self.home / ".local/bin/node", "v24.0.0"), (self.home / ".volta/bin/node", "v22.0.0"),
+                 (self.home / ".nvm/versions/node/v23.1.0/bin/node", "v23.1.0")]
+        for path, version in found:
+            with self.subTest(path=str(path)):
+                self.node_fake(path, version)
                 result = self.run_local("--yes")
                 self.assertIn("JavaScript runtime found", result.stdout)
                 self.assertEqual(self.calls(), [])
                 path.unlink()
+
+    def test_old_node_and_bun_do_not_count_as_runtime(self):
+        (self.bin / "deno").unlink()
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        self.os_release.write_text("ID=arch\n")
+        self.node_fake(self.bin / "node", "v20.19.0")
+        self.node_fake(self.home / ".local/bin/bun", "1.3.14")
+        result = self.run_local("--yes")
+        self.assertIn("JavaScript runtime is missing (Deno, or Node 22 or newer)", result.stdout)
+        self.assertEqual(self.calls()[0], ["sudo", "pacman", "-S", "--needed", "deno", "--noconfirm"])
 
     def test_missing_option_values_and_unknown_flags(self):
         for flag in ("--host-file", "--target-dir", "--unknown"):

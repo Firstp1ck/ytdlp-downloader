@@ -9,8 +9,10 @@ All notable changes to this project. Versions match `extension/manifest.json`.
 - One-command setup: `curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.0/setup.sh | bash`
   installs the helper (checksum-verified, pinned to the release) and offers to install yt-dlp,
   ffmpeg, and Deno (pacman, dnf, zypper, apt, or checksum-verified official builds in `~/.local/bin`).
-- JavaScript runtime support: the helper passes Deno (or Node/Bun) to yt-dlp explicitly, which
-  YouTube needs; the setup page warns when none is installed.
+- JavaScript runtime support: the helper passes Deno (default) or Node 22+ (fallback) to yt-dlp
+  explicitly, which YouTube needs; the setup page warns when neither is installed. Bun is not used
+  (deprecated in yt-dlp, unsandboxed).
+- RHEL, Rocky and Alma: standalone yt-dlp plus ffmpeg instructions (their repositories have neither).
 - Setup page that opens after installing the extension: shows what's missing, the command with a
   Copy button, and switches to "Ready" by itself once the helper answers.
 - The settings page's "Helper program" card (formerly "Native host") has a **Setup page** button;
@@ -23,6 +25,7 @@ All notable changes to this project. Versions match `extension/manifest.json`.
 - Helper version 1.1.0: the setup page asks you to update an older helper (same command).
 - The setup page reports a yt-dlp that is installed but doesn't run instead of showing "Ready".
 - `install.sh` and `uninstall.sh` use the same setup script internally.
+- Debian/Ubuntu: `apt-get update` runs before installing ffmpeg.
 
 ## [1.2.1] - 2026-10-25
 

@@ -37,8 +37,9 @@ The command (the setup page shows the one matching your installed version) does 
    extensions start programs themselves). It's downloaded from the same GitHub release and checked
    against a SHA-256 checksum baked into the script. It goes to `~/.local/share/ytdlp-downloader/`
    and is registered in `~/.mozilla/native-messaging-hosts/`.
-2. **Offers to install what's missing**: yt-dlp, ffmpeg, and a JavaScript runtime (Deno), which
-   yt-dlp uses to solve YouTube's challenges (Node or Bun work too if you already have them). It
+2. **Offers to install what's missing**: yt-dlp, ffmpeg, and a JavaScript runtime, which yt-dlp
+   uses to solve YouTube's challenges. Deno is the default (yt-dlp's recommendation); if you already
+   have Node 22 or newer, that's used instead and nothing extra is installed. It
    shows the plan and asks first; `sudo` asks for your password when needed.
 
    | Distro | yt-dlp | ffmpeg | Deno |
@@ -46,7 +47,8 @@ The command (the setup page shows the one matching your installed version) does 
    | Arch and derivatives | `pacman` | `pacman` | `pacman` |
    | Fedora | `dnf` | `dnf` (`ffmpeg-free`) | official build in `~/.local/bin` |
    | openSUSE | `zypper` | `zypper` | official build in `~/.local/bin` |
-   | Debian, Ubuntu | official standalone build in `~/.local/bin` (apt's is usually too old for YouTube) | `apt-get` | official build in `~/.local/bin` |
+   | Debian, Ubuntu | official standalone build in `~/.local/bin` (apt's is usually too old for YouTube) | `apt-get` (after `apt-get update`) | official build in `~/.local/bin` |
+   | RHEL, Rocky, Alma | official standalone build in `~/.local/bin` | instructions (needs EPEL + RPM Fusion) | official build in `~/.local/bin` |
    | others | instructions only | instructions only | official build in `~/.local/bin` |
 
    Downloaded builds are checked against the SHA-256 list their project publishes and test-run
@@ -65,7 +67,7 @@ happen, and `--uninstall` removes the helper.
 - Linux, with Firefox (140+) or Zen installed natively (not Flatpak or Snap: their sandbox doesn't
   let the browser start the helper)
 - Python 3.8+ for the helper (preinstalled on practically every distro)
-- yt-dlp, ffmpeg, and a JavaScript runtime (Deno, or Node/Bun); the setup command can install them
+- yt-dlp, ffmpeg, and a JavaScript runtime (Deno, or Node 22+); the setup command can install them
 - Optional: `zenity`, `kdialog`, or `yad` for the **Browse…** folder picker
 
 ### From a git checkout
@@ -169,8 +171,9 @@ the add-on in `about:addons`.
   the build in `~/.local/bin`).
 - **Setup page says yt-dlp "doesn't run"**: the installed yt-dlp fails `yt-dlp --version`, usually
   because it needs a newer Python. Update it, or remove it and run the setup command again.
-- **"JavaScript runtime" warning**: without Deno (or Node/Bun) YouTube may hide some formats or
-  videos. Run the setup command again to install Deno.
+- **"JavaScript runtime" warning**: without Deno (or Node 22+) YouTube may hide some formats or
+  videos. Run the setup command again to install Deno. Bun isn't used: yt-dlp deprecated it and it
+  runs YouTube's script without a sandbox.
 - **Host logs**: the host writes diagnostics to stderr, which shows up in the Browser Console
   (Ctrl+Shift+J).
 

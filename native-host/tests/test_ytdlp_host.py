@@ -119,8 +119,7 @@ class ArgvTests(unittest.TestCase):
     def test_runtime_mapping_with_and_without_each_runtime(self):
         options = host.validate_options({}, "/tmp/save")
         for runtime in (None, {"name": "deno", "path": "/tmp/my runtime/deno"},
-                        {"name": "node", "path": "/usr/bin/node"},
-                        {"name": "bun", "path": "/tmp/bun"}):
+                        {"name": "node", "path": "/usr/bin/node"}):
             with self.subTest(runtime=runtime):
                 self.runtime.return_value = runtime
                 argv = host.build_argv("yt-dlp", "https://example.test/a", options, "/tmp/staging")
@@ -603,26 +602,55 @@ class ToolAndDispatchTests(unittest.TestCase):
             self.assertEqual(host.find_ytdlp(), str(Path.home() / ".local/bin/yt-dlp"))
 
     def test_runtime_discovery_order_with_executable_fakes(self):
+        def fake(path, output):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"#!/bin/sh\necho {output}\n")
+            path.chmod(0o755)
+
         with tempfile.TemporaryDirectory(prefix="ytdlp-runtimes-") as directory:
             root = Path(directory)
             path_bin = root / "path"
-            local_bin = root / ".local/bin"
-            deno_bin = root / ".deno/bin"
-            for parent in (path_bin, local_bin, deno_bin):
-                parent.mkdir(parents=True)
-                for name in ("deno", "node", "bun"):
-                    binary = parent / name
-                    binary.write_text("#!/bin/sh\nexit 0\n")
-                    binary.chmod(0o755)
+            deno_order = [path_bin / "deno", root / ".local/bin/deno", root / ".deno/bin/deno",
+                          root / ".volta/bin/deno"]
+            node_order = [path_bin / "node", root / ".local/bin/node", root / ".volta/bin/node",
+                          root / ".nvm/versions/node/v24.0.0/bin/node",
+                          root / ".nvm/versions/node/v22.3.0/bin/node"]
+            for path in deno_order:
+                fake(path, "deno 2.9.8")
+            for path in node_order:
+                fake(path, "v22.3.0")
+            fake(path_bin / "bun", "1.3.14")
             with mock.patch.dict(os.environ, {"HOME": str(root), "PATH": str(path_bin)}):
-                for name in ("deno", "node", "bun"):
-                    for parent in (path_bin, local_bin, deno_bin):
-                        self.assertEqual(host.find_js_runtime(), {"name": name, "path": str(parent / name)})
-                        (parent / name).unlink()
+                # Deno (yt-dlp's default) wins over any Node, in search order.
+                for path in deno_order:
+                    self.assertEqual(host.find_js_runtime(), {"name": "deno", "path": str(path)})
+                    path.unlink()
+                # Then Node; nvm's newest version comes first.
+                for path in node_order:
+                    self.assertEqual(host.find_js_runtime(), {"name": "node", "path": str(path)})
+                    path.unlink()
+                # Bun alone is not used (deprecated in yt-dlp, unsandboxed).
                 self.assertIsNone(host.find_js_runtime())
-                # Nonexecutable files and executable directories aren't runtimes.
-                (local_bin / "deno").write_text("not executable")
-                (local_bin / "node").mkdir()
+
+    def test_node_older_than_22_is_skipped(self):
+        with tempfile.TemporaryDirectory(prefix="ytdlp-node-") as directory:
+            root = Path(directory)
+            old, new = root / "path/node", root / ".local/bin/node"
+            for path, version in ((old, "v20.19.0"), (new, "v22.0.0")):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(f"#!/bin/sh\necho {version}\n")
+                path.chmod(0o755)
+            with mock.patch.dict(os.environ, {"HOME": str(root), "PATH": str(old.parent)}):
+                self.assertEqual(host.find_js_runtime(), {"name": "node", "path": str(new)})
+                new.unlink()
+                self.assertIsNone(host.find_js_runtime())
+                # Garbled or failing version output counts as unusable.
+                old.write_text("#!/bin/sh\necho nonsense\n")
+                self.assertIsNone(host.find_js_runtime())
+                # Nonexecutable files and directories aren't runtimes either.
+                (root / ".local/bin/deno").write_text("not executable")
+                (root / ".deno/bin").mkdir(parents=True)
+                (root / ".deno/bin/deno").mkdir()
                 self.assertIsNone(host.find_js_runtime())
 
     def test_pong_runtime_field_and_failed_ytdlp_probe(self):

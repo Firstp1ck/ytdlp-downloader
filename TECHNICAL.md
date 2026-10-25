@@ -71,7 +71,9 @@ user pastes:  curl -fsSL …/releases/download/v<version>/setup.sh | bash
   after the user agreed. Without a terminal and without `--yes`, no dependency is installed (the helper still is).
 - **Distros and tools.** Detected from `ID`/`ID_LIKE` in `/etc/os-release` (parsed as data, not
   sourced). Arch family: `pacman -S --needed yt-dlp ffmpeg deno`. Fedora: `dnf install yt-dlp
-  ffmpeg-free`. openSUSE: `zypper install yt-dlp ffmpeg`. Debian/Ubuntu: `apt-get install ffmpeg`
+  ffmpeg-free`. openSUSE: `zypper install yt-dlp ffmpeg`. RHEL/Rocky/Alma (`ID_LIKE` lists `rhel`
+  before `fedora`): standalone yt-dlp and instructions for ffmpeg (EPEL + RPM Fusion), because
+  their repositories have neither. Debian/Ubuntu: `apt-get update`, then `apt-get install ffmpeg`
   plus yt-dlp's standalone `yt-dlp_linux`/`yt-dlp_linux_aarch64` in `~/.local/bin` (no Python
   needed; apt's yt-dlp lags behind YouTube). Outside Arch, Deno is the official
   `deno-<arch>-unknown-linux-gnu.zip`, extracted with Python's `zipfile` to `~/.local/bin`. Only
@@ -80,10 +82,18 @@ user pastes:  curl -fsSL …/releases/download/v<version>/setup.sh | bash
   (integrity, not a signature), and are test-run (`--version`). Failures warn and continue: the
   helper is registered regardless. As root, package managers run without `sudo`. x86_64 and
   aarch64 only; other architectures get manual instructions.
-- **JavaScript runtime.** The helper looks for `deno`, then `node`, then `bun` (on `PATH`, in
-  `~/.local/bin`, `~/.deno/bin`), passes it explicitly as `--js-runtimes <name>:<path>` (the
-  browser may start the helper with a short `PATH`), and reports it as `pong.jsRuntime`. A missing
-  runtime is a warning on the setup page, not a blocker.
+- **JavaScript runtime.** yt-dlp runs JavaScript downloaded from YouTube to solve its challenges.
+  The helper uses **Deno** first (yt-dlp's default and recommendation: its sandbox blocks file and
+  network access), then **Node 22 or newer** (yt-dlp's minimum; partly sandboxed). It searches
+  `PATH`, `~/.local/bin`, `~/.deno/bin`, `~/.volta/bin` and nvm's newest version, because the
+  browser may start the helper with a short `PATH`, passes the result explicitly as
+  `--js-runtimes <name>:<path>`, and reports it as `pong.jsRuntime`. **Bun is not used**: yt-dlp
+  deprecated it and it runs the script with full file and network access. Setup installs Deno only
+  when neither runtime is present. A missing runtime is a warning on the setup page, not a blocker.
+  **Deno's development ends around October 2027** (announced 2026-10-09 after Cloudflare's
+  acquisition; monthly security releases until then). yt-dlp hasn't picked a successor yet
+  ([yt-dlp#17799](https://github.com/yt-dlp/yt-dlp/issues/17799)). When it does, change the order
+  in `find_js_runtime()` (helper) and `has_js_runtime()`/the Deno install step (`setup.sh`).
 - **Helper version.** `MIN_HOST_VERSION` in `setup-info.js`; an older `pong.hostVersion` makes the
   setup page ask for an update with the same command. `ping` with `reconnect: true` drops an idle
   port first, so an updated helper is picked up without a browser restart.
@@ -154,7 +164,7 @@ Missing option keys get host defaults; unknown keys and invalid values are rejec
 {"type": "pong", "hostVersion": "1.1.0",
  "ytDlp": {"found": true, "path": "/usr/bin/yt-dlp", "version": "2026.10.21"},  // version null = doesn't run
  "ffmpeg": {"found": true, "path": "/usr/bin/ffmpeg"},
- "jsRuntime": {"name": "deno" | "node" | "bun", "path": "/usr/bin/deno"} | null,   // since 1.1.0
+ "jsRuntime": {"name": "deno" | "node", "path": "/usr/bin/deno"} | null,   // since 1.1.0
  "defaultSaveDir": "/home/u/Downloads", "picker": "zenity" | "kdialog" | "yad" | null}
 {"type": "queued",    "id": "..."}                          // both slots busy
 {"type": "started",   "id": "...", "saveDir": "/abs"}
@@ -200,7 +210,7 @@ yt-dlp --ignore-config --newline --progress --color never --no-simulate
        --progress-template "postprocess:__YTDLP_PROGRESS__{…}"
        --print "after_move:__YTDLP_FILE__%(filepath)j"
        --yes-playlist | --no-playlist
-       [--js-runtimes deno:/usr/bin/deno]                   # first of deno/node/bun found, if any
+       [--js-runtimes deno:/usr/bin/deno]                   # Deno, else Node 22+, if found
        <mode args> -- <url>
 ```
 

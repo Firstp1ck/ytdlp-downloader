@@ -294,16 +294,51 @@ def find_ytdlp():
     return binary
 
 
+# yt-dlp's minimum Node for its YouTube challenge solver.
+NODE_MIN_MAJOR = 22
+
+
+def runtime_candidates(name):
+    """Yield executable paths for name: PATH first, then per-user install locations.
+
+    The browser may start the helper with a short PATH, so common user-level
+    install directories (including nvm's newest version and Volta) are searched too.
+    """
+    binary = shutil.which(name)
+    if binary:
+        yield os.path.abspath(binary)
+    home = Path.home()
+    directories = [home / ".local/bin", home / ".deno/bin", home / ".volta/bin"]
+    directories += sorted((home / ".nvm/versions/node").glob("*/bin"), reverse=True)
+    for directory in directories:
+        candidate = directory / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            yield str(candidate)
+
+
+def node_major(path):
+    """Return Node's major version from `node --version`, or None if it can't be read."""
+    try:
+        result = subprocess.run([path, "--version"], capture_output=True, text=True,
+                                timeout=3, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    match = re.fullmatch(r"v(\d+)\.\d+\.\d+.*", result.stdout.strip())
+    return int(match[1]) if result.returncode == 0 and match else None
+
+
 def find_js_runtime():
-    """Prefer deno, node, then bun, including executables outside browser PATHs."""
-    for name in ("deno", "node", "bun"):
-        binary = shutil.which(name)
-        if binary:
-            return {"name": name, "path": os.path.abspath(binary)}
-        for directory in (".local/bin", ".deno/bin"):
-            candidate = Path.home() / directory / name
-            if candidate.is_file() and os.access(candidate, os.X_OK):
-                return {"name": name, "path": str(candidate)}
+    """Return Deno (yt-dlp's default), else Node >= NODE_MIN_MAJOR, else None.
+
+    Bun is left out on purpose: yt-dlp deprecated it and it runs YouTube's
+    challenge script without any sandbox. Deno's development ends around
+    October 2027; when yt-dlp picks a new default, change the order here.
+    """
+    for path in runtime_candidates("deno"):
+        return {"name": "deno", "path": path}
+    for path in runtime_candidates("node"):
+        if (node_major(path) or 0) >= NODE_MIN_MAJOR:
+            return {"name": "node", "path": path}
     return None
 
 

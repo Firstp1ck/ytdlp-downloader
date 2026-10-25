@@ -19,6 +19,7 @@ uninstall=false
 dry_run=false
 temp_dir=""
 package_command=()
+package_prepare=()
 confirmed_flags=()
 install_ytdlp=false
 install_deno=false
@@ -96,8 +97,11 @@ try:
                     pass
 except OSError:
     pass
+# RHEL rebuilds list "rhel" before "fedora" in ID_LIKE, so they map to "rhel":
+# their repositories lack yt-dlp and ffmpeg (needs EPEL + RPM Fusion).
 families = {"arch": "arch", "manjaro": "arch", "fedora": "fedora",
-            "rhel": "fedora", "centos": "fedora", "opensuse": "suse",
+            "rhel": "rhel", "centos": "rhel", "rocky": "rhel", "almalinux": "rhel",
+            "opensuse": "suse",
             "opensuse-leap": "suse", "opensuse-tumbleweed": "suse", "suse": "suse",
             "debian": "debian", "ubuntu": "debian"}
 for name in (values.get("ID", "") + " " + values.get("ID_LIKE", "")).split():
@@ -108,6 +112,7 @@ PY
 }
 
 show_dependency_plan() {
+    if ((${#package_prepare[@]})); then printf '→ Run: %s\n' "${package_prepare[*]}"; fi
     if ((${#package_command[@]})); then printf '→ Run: %s\n' "${package_command[*]}"; fi
     if "$install_ytdlp"; then
         printf '→ Download %s/%s and %s/SHA2-256SUMS; verify the asset SHA-256 before installing.\n' "$ytdlp_base" "$ytdlp_asset" "$ytdlp_base"
@@ -155,14 +160,27 @@ dependency_failed() {
     printf "→ Dependency installation failed: %s; the helper is installed anyway, the setup page shows what's missing\n" "$*" >&2
 }
 
-has_js_runtime() {
-    local name directory
-    for name in deno node bun; do
-        if command -v "$name" >/dev/null 2>&1; then return 0; fi
-        for directory in "$HOME/.local/bin" "$HOME/.deno/bin"; do
-            if [[ -f "$directory/$name" && -x "$directory/$name" ]]; then return 0; fi
-        done
+runtime_candidates() {
+    # Same search as the helper's runtime_candidates(): PATH, then per-user dirs.
+    local name=$1 candidate
+    command -v "$name" 2>/dev/null || true
+    for candidate in "$HOME/.local/bin/$name" "$HOME/.deno/bin/$name" "$HOME/.volta/bin/$name" \
+                     "$HOME"/.nvm/versions/node/*/bin/"$name"; do
+        if [[ -f "$candidate" && -x "$candidate" ]]; then printf '%s\n' "$candidate"; fi
     done
+}
+
+has_js_runtime() {
+    # Deno (yt-dlp's default), or Node 22+ as fallback. Bun doesn't count: yt-dlp
+    # deprecated it and it runs YouTube's script unsandboxed.
+    local candidate version major
+    if [[ -n "$(runtime_candidates deno)" ]]; then return 0; fi
+    while IFS= read -r candidate; do
+        [[ -n "$candidate" ]] || continue
+        version=$("$candidate" --version 2>/dev/null) || continue
+        major=${version#v}; major=${major%%.*}
+        if [[ "$major" =~ ^[0-9]+$ ]] && ((major >= 22)); then return 0; fi
+    done < <(runtime_candidates node)
     return 1
 }
 
@@ -232,7 +250,7 @@ check_dependencies() {
     fi
     if "$missing_ytdlp"; then echo '→ yt-dlp is missing.'; fi
     if "$missing_ffmpeg"; then echo '→ ffmpeg is missing.'; fi
-    if "$missing_js"; then echo '→ JavaScript runtime is missing (deno, node, or bun).'; fi
+    if "$missing_js"; then echo '→ JavaScript runtime is missing (Deno, or Node 22 or newer).'; fi
     # Test-only override lets unprivileged tests exercise the root command shape.
     if [[ "${YTDLP_SETUP_TEST_EUID:-$EUID}" != 0 ]]; then privilege=(sudo); fi
     family=$(distro_family)
@@ -257,8 +275,19 @@ check_dependencies() {
                 fi
             fi ;;
         debian)
-            if "$missing_ffmpeg"; then package_command=("${privilege[@]}" apt-get install -y ffmpeg); fi
+            if "$missing_ffmpeg"; then
+                # Fresh or stale package lists make `apt-get install` fail with
+                # "Unable to locate package" (seen in a clean Debian 13 container).
+                package_prepare=("${privilege[@]}" apt-get update)
+                package_command=("${privilege[@]}" apt-get install -y ffmpeg)
+            fi
             install_ytdlp="$missing_ytdlp" ;;
+        rhel)
+            install_ytdlp="$missing_ytdlp"
+            if "$missing_ffmpeg"; then
+                echo "→ ffmpeg isn't in RHEL/Rocky/Alma's repositories. Enable EPEL and RPM Fusion"
+                echo '  (https://rpmfusion.org/Configuration), run: sudo dnf install ffmpeg, then run setup again.'
+            fi ;;
         *)
             echo '→ Unknown distribution. Install yt-dlp and ffmpeg with your package manager; then run setup again.' ;;
     esac
@@ -269,7 +298,7 @@ check_dependencies() {
             x86_64) ytdlp_asset=yt-dlp_linux; deno_asset=deno-x86_64-unknown-linux-gnu.zip ;;
             aarch64) ytdlp_asset=yt-dlp_linux_aarch64; deno_asset=deno-aarch64-unknown-linux-gnu.zip ;;
             *)
-                printf '→ No automatic standalone builds for %s. Install yt-dlp and a JavaScript runtime (deno, node, or bun) manually from their official releases.\n' "$arch"
+                printf '→ No automatic standalone builds for %s. Install yt-dlp and a JavaScript runtime (Deno, or Node 22 or newer) manually from their official releases.\n' "$arch"
                 install_ytdlp=false; install_deno=false ;;
         esac
     fi
@@ -277,6 +306,10 @@ check_dependencies() {
     if "$dry_run"; then return; fi
     if ((${#package_command[@]} == 0)) && ! "$install_ytdlp" && ! "$install_deno"; then return; fi
     if ! consent; then echo '→ Skipping dependency installation.'; return; fi
+    if ((${#package_prepare[@]})) && ! run_with_terminal_input "${package_prepare[@]}"; then
+        # Not fatal by itself: existing lists may still be good enough for the install.
+        printf '→ %s failed; trying the install anyway.\n' "${package_prepare[*]}" >&2
+    fi
     if ((${#package_command[@]})); then
         if ! run_with_terminal_input "${package_command[@]}" "${confirmed_flags[@]}"; then
             dependency_failed "${package_command[*]}"; failed=true

@@ -176,7 +176,7 @@ function renderSetupHint(view) {
     outdated: `Update helper: version ${view.hostVersion ?? "unknown"} is older than this extension needs (${MIN_HOST_VERSION} or newer). The setup page shows the command that updates it.`,
     tools: `Not ready yet: ${describeToolProblems(view)}. Running the setup command again ${toolRemedy(view)}.`,
     ready: view.warnings.includes("jsRuntime")
-      ? "No JavaScript runtime found. Downloads work, but yt-dlp can miss some YouTube formats without one. Running the setup command again installs Deno."
+      ? "No JavaScript runtime found (Deno, or Node 22 or newer). Downloads work, but yt-dlp can miss some YouTube formats without one. Running the setup command again installs Deno."
       : undefined,
   };
   const text = texts[view.state];
@@ -250,7 +250,7 @@ function renderHostOk(pong) {
   setDetail("host-ffmpeg", ffmpeg.found ? `Found — ${ffmpeg.path ?? ""}` : "Missing. Install ffmpeg.", !ffmpeg.found);
   setDetail(
     "host-jsruntime",
-    runtimeCheck.status === "warn" ? "None found. Recommended for YouTube: the setup command installs Deno." : runtimeCheck.detail,
+    runtimeCheck.status === "warn" ? "None found (Deno, or Node 22+). Recommended for YouTube: the setup command installs Deno." : runtimeCheck.detail,
     runtimeCheck.status === "warn" && "warn",
   );
   setDetail(
