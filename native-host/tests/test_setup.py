@@ -154,6 +154,8 @@ class SetupTests(unittest.TestCase):
         return self.run_setup("--host-file", str(HOST), *args, **kwargs)
 
     def use_real_download(self, tool="curl"):
+        if not shutil.which(tool):
+            self.skipTest(f"{tool} is not installed")
         (self.bin / "curl").unlink()
         (self.bin / tool).symlink_to(shutil.which(tool))
 
@@ -215,10 +217,13 @@ class SetupTests(unittest.TestCase):
         target.chmod(0o755)
         (self.bin / "python3").unlink()
         self.os_release.write_text("ID=arch\n")
-        for kind in ("file", "symlink", "dangling-symlink", "directory", "fifo"):
+        for kind in ("file", "nul-header", "symlink", "dangling-symlink", "directory", "fifo"):
             with self.subTest(kind=kind):
                 if kind == "file":
                     self.launcher.write_text("#!/bin/sh\n# Someone else's launcher\n")
+                elif kind == "nul-header":
+                    # Bash read drops NUL bytes; this must still not look managed.
+                    self.launcher.write_bytes(b"#!/bin/sh\n# Managed by yt-dlp Down\x00loader\n")
                 elif kind == "symlink":
                     self.launcher.symlink_to(target)
                 elif kind == "dangling-symlink":
@@ -274,10 +279,12 @@ class SetupTests(unittest.TestCase):
         (self.bin / "python3").unlink()
         target = self.root / "marked-target"
         target.write_text("#!/bin/sh\n# Managed by yt-dlp Downloader\nexit 0\n")
-        for kind in ("file", "symlink", "dangling-symlink", "directory"):
+        for kind in ("file", "nul-header", "symlink", "dangling-symlink", "directory"):
             with self.subTest(kind=kind):
                 if kind == "file":
                     self.launcher.write_text("unmanaged\n")
+                elif kind == "nul-header":
+                    self.launcher.write_bytes(b"#!/bin/sh\n# Managed by yt-dlp Down\x00loader\n")
                 elif kind == "symlink":
                     self.launcher.symlink_to(target)
                 elif kind == "dangling-symlink":

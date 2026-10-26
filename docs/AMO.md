@@ -43,7 +43,7 @@ source code?" (there is no build step).
 
 ## Notes to Reviewer
 
-These notes target v1.3.1 with helper 1.2.0. The setup page shows all dependency checks and asks
+These notes target v1.3.2 with helper 1.3.0. The setup page shows all dependency checks and asks
 older helpers to update. Missing prerequisites can be installed by the consent-based setup script.
 
 > **What it does**
@@ -59,15 +59,17 @@ older helpers to update. Missing prerequisites can be installed by the consent-b
 > **Test setup** (Linux; setup offers Python 3.8+, download tools, yt-dlp, ffmpeg and Deno):
 > 1. Install the add-on. A setup page opens automatically.
 > 2. Paste the command it shows into a terminal:
->    `curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.1/setup.sh | bash`
+>    `curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.2/setup.sh | bash`
 >    It downloads `ytdlp_host.py` from the same GitHub release, verifies its SHA-256, copies it to
 >    `~/.local/share/ytdlp-downloader/`, and writes the host manifest to
->    `~/.mozilla/native-messaging-hosts/`. It asks before installing yt-dlp/ffmpeg via the package
->    manager. It also offers optional desktop tools. Add `-s -- --no-deps` to prohibit dependency
+>    `~/.mozilla/native-messaging-hosts/`, plus a managed launcher at `~/.local/bin/ytdlp-setup`
+>    that later updates use (no shell-profile edits). It asks before installing yt-dlp/ffmpeg via
+>    the package manager. It also offers optional desktop tools. Add `-s -- --no-deps` to prohibit dependency
 >    installs; required bootstrap prerequisites must then already be present. If neither curl nor
->    wget is available, save setup.sh in the browser and run `bash setup.sh` in its folder.
+>    wget is available, the page offers Download setup.sh and a `bash ` prefix to complete by
+>    dragging the downloaded file into the terminal.
 >    Undo: same command with `-s -- --uninstall`.
->    Script source: https://github.com/Firstp1ck/ytdlp-downloader/blob/v1.3.1/native-host/setup.sh
+>    Script source: https://github.com/Firstp1ck/ytdlp-downloader/blob/v1.3.2/native-host/setup.sh
 > 3. Required checks switch to "Ready" on their own. Optional or setup-only warnings remain visible
 >    with install guidance and do not block downloads.
 > 4. On youtube.com, right-click a video thumbnail → yt-dlp Downloader → Download Video. Progress
@@ -94,8 +96,8 @@ older helpers to update. Missing prerequisites can be installed by the consent-b
 > No build step: no minification, bundling, transpiling or generated code. The `.xpi` is a plain zip
 > of the `extension/` folder without `extension/tests/`. To reproduce it byte for byte:
 > ```
-> git clone --branch v1.3.1 https://github.com/Firstp1ck/ytdlp-downloader.git
+> git clone --branch v1.3.2 https://github.com/Firstp1ck/ytdlp-downloader.git
 > cd ytdlp-downloader
 > python3 native-host/build_xpi.py extension ytdlp-downloader.xpi
 > ```
-> The result matches `ytdlp-downloader-1.3.1.xpi` from the GitHub release.
+> The result matches `ytdlp-downloader-1.3.2.xpi` from the GitHub release.

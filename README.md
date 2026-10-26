@@ -28,20 +28,30 @@ Firefox or Zen. (It isn't on addons.mozilla.org yet; until then see
 into a terminal:
 
 ```sh
-curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.1/setup.sh | bash
+curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.2/setup.sh | bash
 ```
 
-The setup page lists all twelve checks and distinguishes required failures from optional or
-installer-only warnings. It keeps install guidance visible when anything needs attention. If curl
-is missing, it can use wget; if neither is installed, save the script through your browser and run
-`bash setup.sh` in that folder. A saved script can offer to install a downloader.
+Once the helper is installed, later updates show a shorter command that uses the setup launcher
+described below:
+
+```sh
+"$HOME/.local/bin/ytdlp-setup" 1.3.2
+```
+
+The setup page lists all thirteen checks and distinguishes required failures from optional,
+setup-only or installer-only warnings. It keeps install guidance visible when anything needs
+attention. If curl is missing, it can use wget. If neither is installed, use **Download setup.sh**
+on the page, type `bash ` (with a trailing space) in a terminal, drag the downloaded file into the
+terminal and press Enter. A saved script can offer to install a downloader.
 
 The command (the setup page shows the one matching your installed version) does two things:
 
 1. **Installs the helper**, a small program that lets the browser run yt-dlp (Firefox doesn't let
    extensions start programs themselves). It's downloaded from the same GitHub release and checked
    against a SHA-256 checksum baked into the script. It goes to `~/.local/share/ytdlp-downloader/`
-   and is registered in `~/.mozilla/native-messaging-hosts/`.
+   and is registered in `~/.mozilla/native-messaging-hosts/`. Setup also writes a small managed
+   launcher, `~/.local/bin/ytdlp-setup`, which downloads and runs the setup script of the release you
+   name. It does not edit shell profiles, and it refuses to replace a file or symlink it didn't create.
 2. **Offers to install what's missing**: Python 3.8+, setup utilities, yt-dlp, ffmpeg/ffprobe,
    and a JavaScript runtime. Python is checked and installed first when needed, because the helper
    and checksum verification depend on it. Deno is the default runtime; an existing Node 22+ also
@@ -70,16 +80,17 @@ The command (the setup page shows the one matching your installed version) does 
    Bash, a working package manager, and administrative access are required for package installs;
    missing sudo produces instructions for an administrator rather than an attempted privilege change.
 
-The setup page notices helper 1.2.0 by itself and switches to **Ready** when required checks pass.
+The setup page notices helper 1.3.0 by itself and switches to **Ready** when required checks pass.
 Optional warnings do not block downloads, but keep their install guidance and automatic rechecks
 visible. An old helper or incomplete required report asks for an update instead of claiming Ready.
 No browser restart needed. You can open it again any time: extension settings → **Helper program** → **Setup page**.
 
-[Read the script first](https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.1/setup.sh)
+[Read the script first](https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.2/setup.sh)
 if you like (that's the exact file the command runs). Options (add them after `bash -s --`):
 `--no-deps` skips all dependency installations but still checks required setup prerequisites;
 `--yes` accepts the displayed dependency plans without asking; `--dry-run` only shows what would
-happen; `--uninstall` removes the helper without requiring Python.
+happen; `--uninstall` removes the helper and its managed launcher without requiring Python. The
+launcher accepts only `--no-deps` and `--dry-run` after the version.
 
 ### Requirements
 
@@ -107,13 +118,12 @@ setting below.
 
 ### From a git checkout
 
-Development builds for upcoming 1.3.2 add a managed `ytdlp-setup` launcher with helper 1.3.0.
-After installing that helper, setup can show `"$HOME/.local/bin/ytdlp-setup" 1.3.2` instead of
-inline Python. This is not in published 1.3.1; the 1.3.2 remote installer URL is not available
-until that release is published. For local helper testing without package installs, run
+For local helper testing without package installs, run
 `bash native-host/setup.sh --host-file native-host/ytdlp_host.py --no-deps` from the checkout.
-This updates helper registration in your user account; development validation uses temporary HOME
-rather than changing the running browser's helper.
+This updates helper registration in your user account and installs `~/.local/bin/ytdlp-setup`;
+it refuses to run if an unmanaged file or symlink already uses that name, and
+`bash native-host/setup.sh --uninstall` removes only the managed launcher. Development validation
+uses temporary HOME rather than changing the running browser's helper.
 
 ```sh
 git clone https://github.com/Firstp1ck/ytdlp-downloader.git
@@ -198,7 +208,7 @@ Notes:
 ## Uninstall
 
 ```sh
-curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.1/setup.sh | bash -s -- --uninstall
+curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.2/setup.sh | bash -s -- --uninstall
 ```
 
 or `./native-host/uninstall.sh` from a checkout (which also removes the `user.js` line that

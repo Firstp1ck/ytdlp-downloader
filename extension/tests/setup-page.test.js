@@ -501,6 +501,7 @@ test("verified launcher is preferred over both downloaders and Copy is the real 
     assert.match(page.el("command-label").textContent, /terminal anywhere/);
     assert.match(page.el("command-alternatives").textContent, /verified setup launcher.*asks before installing dependencies/);
     assert.equal(page.el("download-step").hidden, true);
+    assert.equal(page.el("command-hint").hidden, false);
     assert.doesNotMatch(page.el("command").textContent, /python|urllib|subprocess|unsafe|-c /i);
     await page.el("copy").click();
     assert.deepEqual(page.state.copied, [command]);
@@ -513,6 +514,7 @@ test("manual bootstrap downloads first, then copies only bash with a trailing sp
   assert.equal(page.el("setup-card").dataset.state, "ready");
   assert.equal(page.el("command").textContent, "bash ");
   assert.equal(page.el("download-step").hidden, false);
+  assert.equal(page.el("command-hint").hidden, true);
   assert.match(HTML, /id="download-step"[^>]*>1\. First, use Download setup\.sh/);
   assert.ok(HTML.indexOf('id="download-step"') < HTML.indexOf('id="script-link"'));
   assert.ok(HTML.indexOf('id="script-link"') < HTML.indexOf('id="command-label"'));
@@ -578,6 +580,7 @@ test("Copy failure selects the exact displayed launcher command or manual prefix
     assert.deepEqual(page.state.copied, [command]);
     assert.equal(page.el("copy-status").dataset.state, "error");
     assert.match(page.el("copy-status").textContent, /press Ctrl\+C/);
+    if (command === "bash ") assert.match(page.el("copy-status").textContent, /one space follows bash/);
   }
 });
 

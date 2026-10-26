@@ -143,6 +143,16 @@ class SetupCliTests(unittest.TestCase):
                     response.__exit__.assert_called_once()
         self.assertNotIn("Traceback", self.stderr.getvalue())
 
+    def test_oversized_download_reports_the_limit_even_with_content_length(self):
+        with mock.patch.object(host.urllib.request, "build_opener") as build, \
+                mock.patch.object(host.subprocess, "run") as run:
+            # read() stops at the limit + 1 byte; the server still announces the full 2 MiB.
+            response = self.response(b"#" * 1048577, {"Content-Length": str(2 * 1048576)})
+            build.return_value.open.return_value = response
+            self.assertEqual(self.invoke("1.3.2"), 1)
+            run.assert_not_called()
+        self.assertIn("exceeded the 1 MiB limit", self.stderr.getvalue())
+
     def test_exact_size_accepted_only_after_response_closed(self):
         script = b"#" * 1048576
         response = self.response(script, {"Content-Length": str(len(script))})

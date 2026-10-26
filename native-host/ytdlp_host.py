@@ -129,14 +129,14 @@ def setup_cli(args):
         opener = urllib.request.build_opener(*handlers)
         with opener.open(url, timeout=30) as response:
             script = response.read(MAX_SETUP_BYTES + 1)
+            if len(script) > MAX_SETUP_BYTES:
+                raise ValueError("Setup download exceeded the 1 MiB limit.")
             length = response.headers.get("Content-Length")
             if length is not None and (not re.fullmatch(r"[0-9]+", length)
                                        or int(length) != len(script)):
                 raise ValueError("Setup download was incomplete or had an invalid Content-Length.")
         if not script:
             raise ValueError("Setup download was empty.")
-        if len(script) > MAX_SETUP_BYTES:
-            raise ValueError("Setup download exceeded the 1 MiB limit.")
         flags = [arg for arg in args[1:] if arg == "--no-deps"]
         result = subprocess.run(["bash", "-s", "--", *flags], input=script, check=False)
         return result.returncode if result.returncode >= 0 else 128 - result.returncode

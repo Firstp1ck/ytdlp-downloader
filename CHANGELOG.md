@@ -2,16 +2,26 @@
 
 All notable changes to this project. Versions match `extension/manifest.json`.
 
-## [Unreleased]
+## [1.3.2] - 2026-10-26
 
 ### Changed
 
-- Setup uses the short managed command `"$HOME/.local/bin/ytdlp-setup" VERSION` when available,
-  instead of displaying an inline Python program. Helper 1.3.0 adds the version-pinned setup CLI;
+- Setup shows the short managed command `"$HOME/.local/bin/ytdlp-setup" VERSION` when a verified
+  launcher is installed, instead of the curl/wget pipeline. Helper 1.3.0 adds the version-pinned setup CLI;
   the installer creates and safely removes its owned launcher without changing shell profiles.
 - The checklist includes a thirteenth, setup-only launcher check. Old or missing launchers retain
   honest curl/wget or download-and-drag bootstrap instructions, with no guessed download folder.
-- The local test version is 1.3.2 and requires helper 1.3.0. It is not published yet.
+- Helper and minimum helper version are now 1.3.0. The setup page asks older helpers to update.
+
+### Fixed
+
+- `sh setup.sh` works when `sh` is bash older than 5.1 (for example RHEL 8). POSIX mode rejected
+  the script's process substitutions.
+- The launcher ownership check compares the header byte for byte, so a file whose header only
+  matches after dropping NUL bytes is no longer replaced or uninstalled.
+- An oversized setup download reports the 1 MiB limit instead of an invalid Content-Length.
+- In the download-and-drag setup steps, the general command hint no longer sits between steps 2 and
+  3, and the copy fallback reminds you to keep the space after `bash`.
 
 ## [1.3.1] - 2026-10-26
 
@@ -91,6 +101,7 @@ First public release.
 - `native-host/install.sh`: registers the host, builds and opens the `.xpi`, and can opt in to
   unsigned add-ons through `user.js`. `uninstall.sh` reverses it.
 
+[1.3.2]: https://github.com/Firstp1ck/ytdlp-downloader/releases/tag/v1.3.2
 [1.3.1]: https://github.com/Firstp1ck/ytdlp-downloader/releases/tag/v1.3.1
 [1.3.0]: https://github.com/Firstp1ck/ytdlp-downloader/releases/tag/v1.3.0
 [1.2.1]: https://github.com/Firstp1ck/ytdlp-downloader/releases/tag/v1.2.1

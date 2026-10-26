@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v1.3.2 simple setup command report</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#121c2d;--panel-2:#18253a;--text:#e8eef8;--muted:#a9b7cb;--line:#2b3b55;--green:#50d890;--yellow:#f7c65c;--red:#ff7373;--blue:#65b5ff;--code:#07101c;--radius-lg:16px;--shadow:0 14px 36px rgb(0 0 0 / 22%)}
+*{box-sizing:border-box}html{background:var(--background,radial-gradient(ellipse at 12% 0%,#182c4a,var(--bg) 58%));color:var(--foreground,var(--text));font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}body{margin:0;background:transparent}main{width:min(1120px,calc(100% - 32px));margin:28px auto 48px}header,section{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--radius-lg);padding:24px;margin-bottom:18px;box-shadow:var(--shadow)}header{padding:30px}h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.2;margin:12px 0}h2{font-size:1.4rem;margin:0 0 16px;padding-bottom:10px;border-bottom:1px solid var(--line)}h3{font-size:1.05rem;margin:20px 0 8px}p{margin:8px 0 14px}a{color:var(--blue)}a:focus-visible{outline:2px solid var(--blue);outline-offset:4px}.muted,figcaption{color:var(--muted)}.badge{display:inline-block;border:1px solid var(--green);border-radius:99px;padding:3px 10px;color:var(--green);font-size:.85rem}.callout{padding:14px 16px;background:var(--panel-2);border-left:4px solid var(--blue);border-radius:10px}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px}.metric{padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)}.metric strong{display:block;font-size:1.6rem;color:var(--green)}table{width:100%;border-collapse:collapse;text-align:left;font-size:.93rem}caption{text-align:left;font-weight:600;margin-bottom:8px}th,td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}th{color:var(--muted)}code{font-family:ui-monospace,monospace;font-size:.9em;overflow-wrap:anywhere}pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:15px;white-space:pre-wrap;overflow-wrap:anywhere}figure{margin:14px 0}svg{width:100%;height:140px;display:block}figcaption{font-size:.88rem;margin-top:8px}li{margin-bottom:7px}.accepted{color:var(--green)}.deferred{color:var(--yellow)}nav{display:flex;gap:8px 18px;flex-wrap:wrap;font-size:.9rem;margin-top:15px}.source-list{padding-left:22px}@media(max-width:620px){main{width:calc(100% - 20px);margin:12px auto 24px}header,section{padding:16px}th,td{padding:9px 5px;font-size:.85rem}svg{height:110px}.metrics{grid-template-columns:1fr 1fr}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}@media print{html{background:white;color:#111}main{width:100%;margin:0}header,section{background:white;color:#111;box-shadow:none;border-color:#aaa;break-inside:avoid}.muted,figcaption,th{color:#444}a{color:#154c88}pre,.metric,.callout{background:#f4f4f4;color:#111;border-color:#aaa}nav{display:none}.metric strong,.accepted,.deferred,.badge{color:#111}svg{print-color-adjust:exact}}
+</style>
+</head>
+<body><main>
+<header>
+<span class="badge">Reviewed local test build — not published</span>
+<h1>A short, managed setup command</h1>
+<p>Extension <strong>1.3.2</strong> and helper <strong>1.3.0</strong> replace the rejected inline-Python bootstrap with
+<code>"$HOME/.local/bin/ytdlp-setup" 1.3.2</code>, a launcher the installer creates and owns. When no launcher is installed,
+setup keeps honest curl, wget or download-and-drag instructions.</p>
+<p class="muted">Plan: <a href="../plans/archive/simple-setup-command.md">plans/archive/simple-setup-command.md</a> ·
+handoffs: <a href="../plans/archive/simple-setup-native-handoff.md">native</a>, <a href="../plans/archive/simple-setup-frontend-handoff.md">frontend</a>.
+The plan archive is git-ignored, so these links work only in the local checkout.</p>
+<nav><a href="#what">What changed</a><a href="#fixes">Follow-up fixes</a><a href="#review">Independent review</a><a href="#verify">Verification</a><a href="#limits">Remaining limits</a></nav>
+</header>
+
+<section id="what">
+<h2>What changed</h2>
+<ul>
+<li><strong>Helper CLI:</strong> <code>ytdlp_host.py --setup VERSION [--no-deps] [--dry-run]</code> downloads the pinned release
+<code>setup.sh</code> over verified HTTPS (30 s timeout, at most 1 MiB, nonempty, fully fetched) and only then pipes it to bash.
+No native-messaging request can start setup, and Firefox's normal startup arguments still reach the framed server.</li>
+<li><strong>Launcher:</strong> <code>setup.sh</code> writes a <code>#!/bin/sh</code> wrapper marked <code># Managed by yt-dlp Downloader</code>.
+It refuses to overwrite unmanaged files or symlinks, replaces atomically, and uninstalls without Python. It never edits shell profiles.</li>
+<li><strong>Capability:</strong> <code>pong.setupLauncher = {found, path}</code> is reported only for an executable regular file with the
+managed header. The setup page gains a 13th, setup-only checklist row.</li>
+<li><strong>Command choice:</strong> verified launcher → curl or wget one-liner → <code>bash </code> prefix with download-and-drag
+instructions. The page never shows or copies Python source or a command string supplied by the host.</li>
+</ul>
+</section>
+
+<section id="fixes">
+<h2>Follow-up fixes</h2>
+<table><caption>Found by rerunning the full suites on bash 5.0.18 / Python 3.11</caption>
+<thead><tr><th>Issue</th><th>Disposition</th></tr></thead><tbody>
+<tr><td><code>sh setup.sh</code> runs bash in POSIX mode; bash &lt; 5.1 rejects <code>&lt; &lt;(…)</code> process substitution
+(e.g. RHEL 8). Present since <code>47f2bd3</code>, so published v1.3.1 is affected too.</td>
+<td class="accepted">Fixed: <code>set +o posix</code> right after the bash guard.</td></tr>
+<tr><td><code>test_wget_fallback</code> raised <code>TypeError</code> when wget is not installed.</td>
+<td class="accepted">Fixed: the real-download helper skips when the tool is missing.</td></tr>
+</tbody></table>
+</section>
+
+<section id="review">
+<h2>Independent review</h2>
+<p>Two fresh, read-only reviewers checked the integrated tree (<code>git diff 3b5a5d3</code>):
+<strong>R1</strong> native/security (Codex gpt-6.1-sol, high, via Pi; the Codex provider instance was disabled) and
+<strong>R2</strong> UI/bootstrap/docs (Claude Fable 5.1, high). Neither found a high-severity issue. Each finding was
+checked independently against the code before acting on it.</p>
+<table><caption>Findings and dispositions</caption>
+<thead><tr><th>Finding</th><th>Severity</th><th>Disposition and evidence</th></tr></thead><tbody>
+<tr><td>R1: <code>owns_setup_launcher</code> used bash <code>read</code>, which drops NUL bytes, so
+<code>#!/bin/sh\n# Managed by yt-dlp Down\0loader</code> counted as managed and could be replaced or uninstalled.</td><td>Low</td>
+<td class="accepted">Accepted and fixed: read up to the first NUL (<code>read -d '' -n</code>, <code>LC_ALL=C</code>) and require the
+exact header. Reproduced old = owned, new = not owned; a valid launcher stays owned. NUL-header cases added to install-refusal and
+uninstall-preservation tests.</td></tr>
+<tr><td>R2-1: TECHNICAL.md said helper 1.2.0 is required and twelve checks render; README says the same.</td><td>Medium</td>
+<td class="accepted">Accepted for TECHNICAL.md (now 1.3.0, thirteen checks).</td></tr>
+<tr><td>R2-1 (README user sections): twelve checks, helper 1.2.0, <code>bash setup.sh</code>.</td><td>Medium</td>
+<td class="accepted">Fixed in release preparation: README now describes 1.3.2 (thirteen checks, helper 1.3.0, the launcher,
+the drag-file fallback and v1.3.2 URLs).</td></tr>
+<tr><td>R2-2: CHANGELOG and README said the launcher replaced “inline Python”, which was never published.</td><td>Medium</td>
+<td class="accepted">Accepted and fixed: now “instead of the curl/wget pipeline”.</td></tr>
+<tr><td>R2-3: in the browser method, the static command hint sat between steps 2 and 3.</td><td>Low</td>
+<td class="accepted">Accepted and fixed: hint hidden for the browser method; page test asserts both states.</td></tr>
+<tr><td>R2-4: copy-failure text gave no cue to keep the space after <code>bash</code>.</td><td>Low</td>
+<td class="accepted">Accepted and fixed: prefix-specific fallback text, asserted in the copy-failure test. Whether Firefox's
+selection copy keeps the trailing space is still unverified in a real browser.</td></tr>
+<tr><td>R2-5: an oversized body with Content-Length reported “invalid Content-Length” instead of the 1 MiB limit.</td><td>Low</td>
+<td class="accepted">Accepted and fixed: size checked first; new regression test. Behavior was already safe (Bash never ran).</td></tr>
+<tr><td>R2-6: README developer instructions omitted the launcher side effect.</td><td>Low</td>
+<td class="accepted">Accepted and fixed: the checkout section now names the launcher, the refusal and <code>--uninstall</code>.</td></tr>
+<tr><td>R2-7: handoff's “no skips” claim does not hold without wget.</td><td>Low</td>
+<td class="accepted">Recorded: 1 skip on hosts without wget, by design of this session's test fix.</td></tr>
+<tr><td>R2-8: docs/AMO.md targets 1.3.1.</td><td>Info</td>
+<td class="accepted">Fixed in release preparation: notes now target v1.3.2 with helper 1.3.0.</td></tr>
+</tbody></table>
+</section>
+
+<section id="verify">
+<h2>Verification</h2>
+<div class="metrics">
+<div class="metric"><strong>165/165</strong>extension tests</div>
+<div class="metric"><strong>136</strong>native tests OK, 1 skip (no wget)</div>
+<div class="metric"><strong>13</strong>checklist rows</div>
+<div class="metric"><strong>0</strong>high findings</div>
+</div>
+<pre>node --test extension/tests                      # exit 0, 165 pass
+cd native-host/tests &amp;&amp; python3 -m unittest      # OK, 136 tests (skipped=1), bash 5.0.18, Python 3.11
+bash -n native-host/setup.sh                     # exit 0
+node --check extension/setup/setup.js extension/shared/setup-info.js   # exit 0
+git diff --check                                 # exit 0
+python3 native-host/build_xpi.py extension dist/ytdlp-downloader-simple-setup-test.xpi   # twice, identical</pre>
+<ul>
+<li><strong>Local test XPI:</strong> <code>dist/ytdlp-downloader-simple-setup-test.xpi</code>, manifest 1.3.2, no tests,
+SHA-256 <code>62066406100e90bdf01b39858b3542636a629adfe84ae074954470592614659d</code>. It needs helper 1.3.0 from this checkout.</li>
+<li><strong>v1.3.1 preserved:</strong> published asset digests unchanged; rebuilding tag v1.3.1 reproduces the published XPI
+SHA-256 <code>70a2c67a250b54bef4102014b17d530d26cc73cd940b20ed8a6ba2178e2dfb25</code>.</li>
+<li>Earlier session evidence (isolated end-to-end launcher → CLI → loopback → fake Bash, exit propagation, Python-free uninstall)
+is recorded in the plan.</li>
+</ul>
+</section>
+
+<section id="limits">
+<h2>Remaining limits</h2>
+<ul>
+<li><span class="deferred">Real-browser desktop, mobile and copy check waived by the user.</span> This Sailfish OS host has no sudo
+or package manager, Playwright Chromium and T3's preview browser cannot start (missing libatk, libX11, libgbm and others), and the
+system browser would touch a live profile. The fake-DOM page suite (165 tests) covers states, rendering and copy and was accepted
+as sufficient.</li>
+<li>shellcheck is not installed here; the CI and release workflows run it.</li>
+<li>No real package manager, remote installer, live browser profile or installed user helper was used.</li>
+<li>Docs and CHANGELOG are prepared for 1.3.2 (dated 2026-10-26), but the release is not tagged or published yet.
+Until it is, the v1.3.2 URLs in the docs and the launcher's pinned download do not exist.</li>
+</ul>
+</section>
+</main></body>
+</html>

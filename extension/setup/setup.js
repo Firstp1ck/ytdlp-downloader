@@ -172,6 +172,8 @@ function render(view) {
   displayedCommand = nextCommand;
   commandCode.textContent = displayedCommand;
   document.getElementById("download-step").hidden = method !== "browser";
+  // The numbered browser steps describe the download themselves; the hint would split steps 2 and 3.
+  document.getElementById("command-hint").hidden = method === "browser";
   document.getElementById("command-label").textContent = method === "browser"
     ? "2. Open a terminal and paste or type this prefix (bash followed by one space). Do not press Enter yet:"
     : view.setupMethod === "unknown"
@@ -304,7 +306,9 @@ copyButton.addEventListener("click", async () => {
   } catch {
     selectCommand();
     commandCode.focus();
-    showCopyStatus("Could not copy automatically. The command is selected: press Ctrl+C.", "error");
+    showCopyStatus(displayedCommand === "bash "
+      ? "Could not copy automatically. The prefix is selected: press Ctrl+C, and make sure one space follows bash when you paste it."
+      : "Could not copy automatically. The command is selected: press Ctrl+C.", "error");
   }
 });
 

@@ -110,9 +110,10 @@ user pastes:  curl -fsSL …/releases/download/v<version>/setup.sh | bash
   in `find_js_runtime()` (helper) and `has_js_runtime()`/the Deno install step (`setup.sh`).
 - **Helper version.** `MIN_HOST_VERSION` in `setup-info.js`; an older `pong.hostVersion` makes the
   setup page ask for an update with the same command. `ping` with `reconnect: true` drops an idle
-  port first, so an updated helper is picked up without a browser restart. Version 1.2.0 adds the
-  extended dependency report, and this extension requires it. The setup page always renders twelve
-  checks, leaves unreported values pending, and distinguishes required failures from recommended,
+  port first, so an updated helper is picked up without a browser restart. Version 1.2.0 added the
+  extended dependency report; 1.3.0 adds the `--setup` CLI and `setupLauncher` capability, and this
+  extension requires 1.3.0. The setup page always renders thirteen checks (twelve before the
+  setup-only launcher row), leaves unreported values pending, and distinguishes required failures from recommended,
   optional and installer-only warnings. Warnings and actionable unknowns keep installation guidance
   and visible-tab polling active; a fully healthy page stops polling. Unsupported-Python repair
   also requests a guarded idle reconnection so the new interpreter is used. When xdg-user-dir
@@ -138,8 +139,8 @@ manifest-path/add-on-ID startup arguments retain the framed protocol.
 
 The installer refuses unmanaged files and symlinks at the launcher location, atomically replaces
 owned launchers, and removes only the owned marker on Python-free uninstall. No extra release
-asset, checksum placeholder, shell-profile edit or browser permission is introduced. Installed
-version 1.3.1 does not have this CLI; local tests must use the updated checkout helper or fixtures.
+asset, checksum placeholder, shell-profile edit or browser permission is introduced. Helpers older
+than 1.3.0 do not have this CLI and report no launcher, so the setup page falls back to curl/wget.
 
 ## Design decisions
 

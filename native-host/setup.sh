@@ -5,6 +5,8 @@ if [ -z "${BASH_VERSION:-}" ]; then
     echo 'Setup needs bash. Install bash with your package manager, then run bash setup.sh or curl … | bash.' >&2
     exit 1
 fi
+# `sh setup.sh` runs bash in POSIX mode, where bash < 5.1 rejects `< <(...)` process substitution.
+set +o posix
 set -euo pipefail
 RELEASE_VERSION=""
 RELEASE_HOST_SHA256=""
@@ -55,10 +57,11 @@ trap cleanup EXIT
 
 
 owns_setup_launcher() {
-    local first second
+    local header=$'#!/bin/sh\n# Managed by yt-dlp Downloader\n' start=""
     [[ -f "$setup_launcher" && ! -L "$setup_launcher" && -r "$setup_launcher" ]] || return 1
-    { IFS= read -r first && IFS= read -r second; } <"$setup_launcher" || return 1
-    [[ "$first" == '#!/bin/sh' && "$second" == '# Managed by yt-dlp Downloader' ]]
+    # read drops NUL bytes, so stop at the first one: the header must precede any NUL byte-for-byte.
+    LC_ALL=C IFS= read -r -d '' -n "${#header}" start <"$setup_launcher" || true
+    [[ "$start" == "$header" ]]
 }
 
 check_setup_launcher() {
