@@ -22,7 +22,7 @@ usage() {
     echo 'Always builds dist/ytdlp-downloader.xpi. --install-extension opens it in the browser'
     echo '(default: zen-browser, else firefox), which asks you to confirm the install.'
     echo 'Without the yes/no flags the script asks when run in a terminal.'
-    echo '--yes accepts dependency installs only; --no-deps skips dependency checks and installs.'
+    echo '--yes accepts dependency installs only; --no-deps skips installs but still checks required setup prerequisites.'
 }
 
 while (($#)); do

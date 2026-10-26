@@ -377,13 +377,13 @@ class SubprocessTests(unittest.TestCase):
         binary = self.root / "yt-dlp"
         binary.write_text(FAKE_YTDLP.replace("#!PYTHON", "#!" + sys.executable))
         binary.chmod(0o755)
-        # The host refuses jobs without ffmpeg on PATH; a stub keeps these tests
-        # independent of the machine (CI runners have no ffmpeg).
+        # Keep required media tools independent of the machine running the tests.
         stub_bin = self.root / "bin"
         stub_bin.mkdir()
-        ffmpeg = stub_bin / "ffmpeg"
-        ffmpeg.write_text("#!/bin/sh\nexit 0\n")
-        ffmpeg.chmod(0o755)
+        for name in ("ffmpeg", "ffprobe"):
+            tool = stub_bin / name
+            tool.write_text("#!/bin/sh\nexit 0\n")
+            tool.chmod(0o755)
         deno = stub_bin / "deno"
         deno.write_text("#!/bin/sh\nexit 0\n")
         deno.chmod(0o755)
@@ -415,10 +415,22 @@ class SubprocessTests(unittest.TestCase):
     def test_real_framing_ping_pong_and_eof(self):
         self.pipe.send({"type": "ping"})
         pong = self.pipe.until(lambda m: m["type"] == "pong")
-        self.assertEqual(pong["hostVersion"], "1.1.0")
+        self.assertEqual(pong["hostVersion"], "1.2.0")
         self.assertEqual(pong["jsRuntime"], self.runtime)
         self.assertEqual(pong["ytDlp"]["version"], "fake-1.0")
         self.assertTrue(pong["ytDlp"]["found"])
+        self.assertEqual(pong["python"], {
+            "found": True, "path": sys.executable,
+            "version": ".".join(str(part) for part in sys.version_info[:3]),
+            "supported": sys.version_info >= (3, 8),
+        })
+        for name in ("ffmpeg", "ffprobe"):
+            self.assertEqual(pong[name], {"found": True, "path": str(self.root / "bin" / name)})
+        self.assertEqual(pong["downloader"], {"found": False, "name": None, "path": None})
+        self.assertEqual(pong["coreutils"], {
+            "found": False, "missing": ["cat", "mkdir", "install", "rm", "rmdir", "mktemp", "uname"],
+        })
+        self.assertIsNone(pong["picker"])
         self.assertTrue(os.path.isabs(pong["defaultSaveDir"]))
         code, stderr = self.pipe.close()
         self.assertEqual(code, 0, stderr)
@@ -505,7 +517,8 @@ class SubprocessTests(unittest.TestCase):
 class ToolAndDispatchTests(unittest.TestCase):
     def setUp(self):
         self.output = io.BytesIO()
-        with mock.patch.object(host, "default_save_dir", return_value="/tmp/downloads"):
+        with mock.patch.object(host, "default_save_dir", return_value="/tmp/downloads"), \
+                mock.patch.object(host.shutil, "which", return_value="/fake/xdg-user-dir"):
             self.native = host.NativeHost(self.output)
         self.addCleanup(self.native.shutdown)
 
@@ -520,15 +533,48 @@ class ToolAndDispatchTests(unittest.TestCase):
         return {"type": "download", "id": "id", "url": "https://example.test/a",
                 "options": options or {}}
 
-    def test_missing_ytdlp_and_ffmpeg(self):
+    def test_missing_ytdlp_and_media_tools(self):
         with mock.patch.object(host, "find_ytdlp", return_value=None):
             self.native.handle(self.request())
         self.assertEqual(self.messages()[-1]["code"], "ytdlp_missing")
-        for options in [{}, {"mode": "audio", "audioFormat": "mp3"}, {"mode": "audio", "audioFormat": "best"}]:
-            with mock.patch.object(host, "find_ytdlp", return_value="/bin/true"), \
-                    mock.patch.object(host.shutil, "which", return_value=None):
-                self.native.handle(self.request(options))
-            self.assertEqual(self.messages()[-1]["code"], "ffmpeg_missing")
+        for missing in ("ffmpeg", "ffprobe"):
+            for options in [{}, {"mode": "audio", "audioFormat": "mp3"}, {"mode": "audio", "audioFormat": "best"}]:
+                with self.subTest(missing=missing, options=options), \
+                        mock.patch.object(host, "find_ytdlp", return_value="/bin/true"), \
+                        mock.patch.object(host.shutil, "which", side_effect=lambda name: (
+                            None if name == missing else "/usr/bin/" + name)), \
+                        mock.patch.object(self.native, "start_thread") as start:
+                    self.native.handle(self.request(options))
+                    error = self.messages()[-1]
+                    self.assertEqual(error["code"], "ffmpeg_missing")
+                    self.assertIn(missing + " is required", error["message"])
+                    self.assertFalse(self.native.jobs)
+                    start.assert_not_called()
+
+    def test_finished_event_follows_staging_cleanup(self):
+        events = []
+        process = mock.Mock(stdout=io.StringIO(""), stderr=io.StringIO(""))
+        process.wait.return_value = 0
+        process.poll.return_value = 0
+        original_cleanup = host.remove_staging
+        def cleanup(directory):
+            original_cleanup(directory)
+            events.append("cleanup")
+        def send(message):
+            events.append(message["type"])
+        with tempfile.TemporaryDirectory() as directory:
+            job = host.Job("cleanup-order", "https://example.test/video",
+                           host.validate_options({}, directory), "/fake/yt-dlp")
+            self.native.jobs[job.id] = job
+            self.native.active = 1
+            with mock.patch.object(host.subprocess, "Popen", return_value=process), \
+                    mock.patch.object(host, "find_js_runtime", return_value=None), \
+                    mock.patch.object(host, "remove_staging", side_effect=cleanup), \
+                    mock.patch.object(self.native, "send", side_effect=send):
+                self.native.download(job)
+            self.assertEqual(events, ["started", "cleanup", "finished"])
+            self.assertFalse(Path(job.staging_dir).exists())
+            self.assertEqual(self.native.active, 0)
 
     def test_cancel_after_process_exit_is_unknown(self):
         job = host.Job("done", "https://example.test/a", host.validate_options({}, "/tmp"), "/bin/true")
@@ -653,6 +699,156 @@ class ToolAndDispatchTests(unittest.TestCase):
                 (root / ".deno/bin/deno").mkdir()
                 self.assertIsNone(host.find_js_runtime())
 
+    def test_installing_user_dirs_refreshes_default_for_future_downloads(self):
+        output = io.BytesIO()
+        fallback, configured = "/tmp/fallback-downloads", "/tmp/configured-downloads"
+        with mock.patch.object(host, "default_save_dir", return_value=fallback), \
+                mock.patch.object(host.shutil, "which", return_value=None):
+            native = host.NativeHost(output)
+        self.addCleanup(native.shutdown)
+        available = {}
+        with mock.patch.object(host.shutil, "which", side_effect=available.get), \
+                mock.patch.object(host, "default_save_dir", return_value=configured) as resolve, \
+                mock.patch.object(host, "find_ytdlp", return_value=None), \
+                mock.patch.object(host, "find_js_runtime", return_value=None):
+            native.send_pong()
+            available["xdg-user-dir"] = "/fake/xdg-user-dir"
+            native.send_pong()
+            self.assertEqual(native.default_dir, configured)
+            resolve.assert_called_once_with(timeout=1)
+            native.send_pong()
+            self.assertEqual(resolve.call_count, 1, "unchanged availability adds no lookup probe")
+        with mock.patch.object(host, "find_ytdlp", return_value="/fake/yt-dlp"), \
+                mock.patch.object(host.shutil, "which", return_value="/fake/tool"), \
+                mock.patch.object(native, "start_thread"):
+            native.submit(self.request())
+        self.assertEqual(native.jobs["id"].options["saveDir"], configured)
+        output.seek(0)
+        pongs = [host.read_message(output) for _ in range(3)]
+        self.assertEqual(pongs[0]["defaultSaveDir"], fallback)
+        self.assertEqual(pongs[1]["defaultSaveDir"], configured)
+        self.assertTrue(pongs[1]["userDirs"]["found"])
+
+    def test_pong_reports_present_dependencies_without_new_execution_probes(self):
+        runtime = {"name": "deno", "path": "/tools/deno"}
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(host.shutil, "which", side_effect=lambda name: "/tools/" + name), \
+                mock.patch.object(host, "find_ytdlp", return_value="/tools/yt-dlp"), \
+                mock.patch.object(host, "find_js_runtime", return_value=runtime), \
+                mock.patch.object(host.subprocess, "run", return_value=mock.Mock(
+                    returncode=0, stdout="fake-1.0\n")) as run:
+            self.native.send_pong()
+        pong = self.messages()[-1]
+        self.assertEqual(pong["python"], {
+            "found": True, "path": sys.executable,
+            "version": ".".join(str(part) for part in sys.version_info[:3]),
+            "supported": sys.version_info >= (3, 8),
+        })
+        for field, name in (("ffmpeg", "ffmpeg"), ("ffprobe", "ffprobe"),
+                            ("opener", "xdg-open"), ("userDirs", "xdg-user-dir")):
+            self.assertEqual(pong[field], {"found": True, "path": "/tools/" + name})
+        self.assertEqual(pong["downloader"], {"found": True, "name": "curl", "path": "/tools/curl"})
+        self.assertEqual(pong["coreutils"], {"found": True, "missing": []})
+        self.assertEqual(pong["nativeMessagingProxy"], {
+            "found": True, "path": "/tools/xdg-native-messaging-proxy", "applicable": None,
+        })
+        self.assertEqual(pong["ytDlp"], {"found": True, "path": "/tools/yt-dlp", "version": "fake-1.0"})
+        self.assertEqual(pong["jsRuntime"], runtime)
+        self.assertEqual(pong["picker"], "zenity")
+        self.assertEqual(pong["defaultSaveDir"], "/tmp/downloads")
+        run.assert_called_once_with(["/tools/yt-dlp", "--version"], capture_output=True,
+                                    text=True, timeout=5, check=False)
+
+    def test_pong_reports_missing_dependencies_without_execution_probes(self):
+        with mock.patch.dict(os.environ, {}, clear=True), \
+                mock.patch.object(host.shutil, "which", return_value=None), \
+                mock.patch.object(Path, "is_file", return_value=False), \
+                mock.patch.object(host, "find_ytdlp", return_value=None), \
+                mock.patch.object(host, "find_js_runtime", return_value=None), \
+                mock.patch.object(host.subprocess, "run") as run:
+            self.native.send_pong()
+        pong = self.messages()[-1]
+        for field in ("ffmpeg", "ffprobe", "opener", "userDirs"):
+            self.assertEqual(pong[field], {"found": False, "path": None})
+        self.assertEqual(pong["downloader"], {"found": False, "name": None, "path": None})
+        self.assertEqual(pong["coreutils"], {
+            "found": False, "missing": ["cat", "mkdir", "install", "rm", "rmdir", "mktemp", "uname"],
+        })
+        self.assertEqual(pong["nativeMessagingProxy"], {"found": False, "path": None, "applicable": None})
+        self.assertTrue(pong["python"]["found"], "the interpreter running the helper is present")
+        self.assertIsNone(pong["picker"])
+        run.assert_not_called()
+
+    def test_pong_downloader_fallback_and_partial_coreutils(self):
+        available = {name: "/tools/" + name for name in ("wget", "cat", "mkdir", "rm", "mktemp")}
+        with mock.patch.object(host.shutil, "which", side_effect=available.get), \
+                mock.patch.object(host, "find_ytdlp", return_value=None), \
+                mock.patch.object(host, "find_js_runtime", return_value=None):
+            self.native.send_pong()
+        pong = self.messages()[-1]
+        self.assertEqual(pong["downloader"], {"found": True, "name": "wget", "path": "/tools/wget"})
+        self.assertEqual(pong["coreutils"], {"found": False, "missing": ["install", "rmdir", "uname"]})
+
+    def test_pong_python_support_boundary(self):
+        for version, supported in (((3, 7, 17), False), ((3, 8, 0), True)):
+            with self.subTest(version=version), \
+                    mock.patch.object(host.sys, "version_info", version), \
+                    mock.patch.object(host, "find_ytdlp", return_value=None), \
+                    mock.patch.object(host, "find_js_runtime", return_value=None):
+                self.native.send_pong()
+            self.assertEqual(self.messages()[-1]["python"], {
+                "found": True, "path": sys.executable,
+                "version": ".".join(str(part) for part in version), "supported": supported,
+            })
+
+    def test_proxy_applicability_requires_explicit_sandbox_environment(self):
+        environments = [({}, None), ({"FLATPAK_ID": "org.mozilla.firefox"}, True),
+                        ({"SNAP": "/snap/firefox/current"}, True), ({"SNAP_NAME": "firefox"}, True),
+                        ({"FLATPAK_ID": "", "SNAP": "", "SNAP_NAME": ""}, None),
+                        ({"XDG_CURRENT_DESKTOP": "GNOME", "container": "flatpak"}, None)]
+        for environment, applicable in environments:
+            for proxy in (None, "/tools/xdg-native-messaging-proxy"):
+                with self.subTest(environment=environment, proxy=proxy), \
+                        mock.patch.dict(os.environ, environment, clear=True), \
+                        mock.patch.object(host, "find_native_messaging_proxy", return_value=proxy), \
+                        mock.patch.object(host, "find_ytdlp", return_value=None), \
+                        mock.patch.object(host, "find_js_runtime", return_value=None), \
+                        mock.patch.object(host.subprocess, "run") as run:
+                    self.native.send_pong()
+                    self.assertEqual(self.messages()[-1]["nativeMessagingProxy"], {
+                        "found": proxy is not None, "path": proxy, "applicable": applicable,
+                    })
+                    run.assert_not_called()
+
+    def test_proxy_discovery_from_path_requires_executable_file(self):
+        with tempfile.TemporaryDirectory(prefix="ytdlp-proxy-") as directory, \
+                mock.patch.dict(os.environ, {"PATH": directory}), \
+                mock.patch.object(Path, "is_file", return_value=False):
+            proxy = Path(directory) / "xdg-native-messaging-proxy"
+            proxy.write_text("#!/bin/sh\nexit 0\n")
+            self.assertIsNone(host.find_native_messaging_proxy())
+            proxy.chmod(0o755)
+            self.assertEqual(host.find_native_messaging_proxy(), str(proxy))
+            proxy.unlink()
+            proxy.mkdir()
+            self.assertIsNone(host.find_native_messaging_proxy())
+
+    def test_proxy_discovery_checks_each_standard_system_location(self):
+        locations = ("/usr/libexec/xdg-native-messaging-proxy",
+                     "/usr/lib/xdg-native-messaging-proxy",
+                     "/usr/lib/xdg-native-messaging-proxy/xdg-native-messaging-proxy")
+        for location in locations:
+            with self.subTest(location=location), \
+                    mock.patch.object(host.shutil, "which", return_value=None), \
+                    mock.patch.object(Path, "is_file", return_value=True), \
+                    mock.patch.object(host.os, "access", side_effect=lambda path, mode: str(path) == location):
+                self.assertEqual(host.find_native_messaging_proxy(), location)
+        with mock.patch.object(host.shutil, "which", return_value=None), \
+                mock.patch.object(Path, "is_file", return_value=False), \
+                mock.patch.object(host.os, "access") as access:
+            self.assertIsNone(host.find_native_messaging_proxy())
+            access.assert_not_called()
+
     def test_pong_runtime_field_and_failed_ytdlp_probe(self):
         for runtime in (None, {"name": "node", "path": "/tmp/node"}):
             for code, expected_version in ((0, "2026.10.21"), (3, None)):
@@ -662,7 +858,7 @@ class ToolAndDispatchTests(unittest.TestCase):
                         mock.patch.object(host.subprocess, "run", return_value=mock.Mock(returncode=code, stdout="2026.10.21\n")):
                     self.native.send_pong()
                     pong = self.messages()[-1]
-                    self.assertEqual(pong["hostVersion"], "1.1.0")
+                    self.assertEqual(pong["hostVersion"], "1.2.0")
                     self.assertEqual(pong["jsRuntime"], runtime)
                     self.assertEqual(pong["ytDlp"]["version"], expected_version)
 

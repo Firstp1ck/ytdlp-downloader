@@ -13,7 +13,7 @@ const setupText = document.getElementById("setup-text");
 const setupButton = document.getElementById("open-setup");
 
 const SETUP_BANNERS = Object.freeze({
-  missing: { text: "The helper program isn't installed, so downloads can't start.", button: "Set up the helper" },
+  missing: { text: "The helper program is not reachable, so downloads can't start.", button: "Set up the helper" },
   outdated: { text: "The helper program needs an update.", button: "Update the helper" },
   tools: { text: "", button: "Finish setup" },
 });
@@ -133,10 +133,15 @@ function render(downloads) {
 function renderHost(host) {
   if (!host || host.reachable === null) return;
   const view = deriveSetupState(host.reachable ? { ok: true, pong: host.pong } : { ok: false, error: host.error });
-  const banner = SETUP_BANNERS[view.state];
+  const banner = SETUP_BANNERS[view.state] ?? (view.needsAttention
+    ? { text: "Downloads are ready, but optional or setup checks need attention.", button: "Review setup" }
+    : null);
   setupBanner.hidden = !banner;
   if (!banner) return;
-  setupText.textContent = view.state === "tools" ? `${describeToolProblems(view)}, so downloads fail.` : banner.text;
+  setupText.textContent = view.state === "tools" ? `${describeToolProblems(view)}, so downloads fail.`
+    : view.state === "outdated" && view.updateReason !== "version"
+      ? "Helper compatibility or required diagnostics are not confirmed. Open setup to update or reinstall it."
+      : banner.text;
   setupButton.textContent = banner.button;
 }
 

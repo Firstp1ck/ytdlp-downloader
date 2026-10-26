@@ -2,6 +2,37 @@
 
 All notable changes to this project. Versions match `extension/manifest.json`.
 
+## [1.3.1] - 2026-10-26
+
+### Added
+
+- Setup displays all twelve required, recommended, optional and installer-only dependency checks.
+  Missing or unconfirmed tools remain visible, with install/update guidance and automatic rechecks.
+- The setup command uses wget when it is the available downloader, or offers browser-save
+  instructions when neither curl nor wget is available.
+- Setup offers missing Python 3.8+, coreutils, and a downloader needed for remote installation,
+  then verifies required prerequisites before registering the helper. Distro detection no longer
+  depends on Python.
+- Setup offers optional folder-picker and XDG desktop tools, keeping any supported existing picker.
+- For sandboxed browsers and RHEL multimedia, setup offers packages found in configured repository
+  metadata without enabling repositories or using AUR helpers.
+
+### Changed
+
+- Helper and minimum helper version are now 1.2.0. Older helpers explicitly request an update so
+  the extended dependency report cannot be silently skipped.
+- Settings and toolbar status distinguish required failures, optional warnings and unconfirmed
+  helper diagnostics.
+
+### Fixed
+
+- Check for ffprobe as well as ffmpeg, and offer the ffmpeg package when either is missing.
+- Emit the finished-download event after staging cleanup, avoiding a race visible to consumers.
+- Reconnect after Python repair and refresh default download directories when XDG detection becomes
+  available, so successful setup changes take effect without restarting the browser.
+- Preserve consent and no-op flags for prerequisite installs, with clear errors for missing sudo,
+  unavailable package managers, or Python that remains unsupported after installation.
+
 ## [1.3.0] - 2026-10-25
 
 ### Added
@@ -49,5 +80,6 @@ First public release.
 - `native-host/install.sh`: registers the host, builds and opens the `.xpi`, and can opt in to
   unsigned add-ons through `user.js`. `uninstall.sh` reverses it.
 
+[1.3.1]: https://github.com/Firstp1ck/ytdlp-downloader/releases/tag/v1.3.1
 [1.3.0]: https://github.com/Firstp1ck/ytdlp-downloader/releases/tag/v1.3.0
 [1.2.1]: https://github.com/Firstp1ck/ytdlp-downloader/releases/tag/v1.2.1

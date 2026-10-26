@@ -27,12 +27,29 @@ name = pathlib.Path(sys.argv[0]).name
 if name == "uname":
     print(os.environ.get("FAKE_ARCH", "x86_64"))
     sys.exit(0)
+query = (name == "apt-cache" or (name == "pacman" and "-Si" in sys.argv)
+         or (name == "dnf" and "list" in sys.argv) or (name == "zypper" and "search" in sys.argv))
+if query:
+    available = sys.argv[-1] in os.environ.get("FAKE_AVAILABLE_PACKAGES", "").split()
+    if name == "zypper":
+        entry = f'<solvable name="{sys.argv[-1]}"/>' if available else ""
+        print(f"<stream><search-result><solvable-list>{entry}</solvable-list></search-result></stream>")
+        sys.exit(0)
+    if available:
+        print("Package: " + sys.argv[-1])
+        sys.exit(0)
+    sys.exit(1)
 with open(os.environ["ARGV_LOG"], "a") as stream:
     stream.write(json.dumps([name, *sys.argv[1:]]) + "\n")
 if name == os.environ.get("FAKE_FAIL_TOOL"):
     sys.exit(23)
 if name == "sudo":
     sys.exit(subprocess.call(sys.argv[1:]))
+if name in ("pacman", "apt-get", "dnf", "zypper") and "update" not in sys.argv:
+    for tool, target in json.loads(os.environ.get("FAKE_INSTALL_TOOLS", "{}")).items():
+        path = pathlib.Path(os.environ["PATH"]) / tool
+        path.unlink(missing_ok=True)
+        path.symlink_to(target)
 if name == "curl":
     asset = sys.argv[-1].rsplit("/", 1)[-1]
     if os.environ.get("FAKE_DOWNLOAD_FAIL") == asset:
@@ -113,7 +130,8 @@ class SetupTests(unittest.TestCase):
         self.release = self.root / "release"
         self.release.mkdir()
         bake_setup(self.release)
-        for name in ("sudo", "pacman", "apt-get", "dnf", "zypper", "curl", "uname", "deno"):
+        for name in ("sudo", "pacman", "apt-get", "apt-cache", "dnf", "zypper", "curl", "uname", "deno",
+                     "ffprobe", "zenity", "xdg-open", "xdg-user-dir"):
             self.fake(name)
 
     def fake(self, name):
@@ -350,9 +368,11 @@ class SetupTests(unittest.TestCase):
 
     def test_missing_python_has_actionable_error(self):
         (self.bin / "python3").unlink()
+        self.os_release.write_text("ID=arch\n")
         result = self.run_local("--no-deps", expected=1)
-        self.assertIn("Python 3 is required", result.stderr)
-        self.assertIn("Install python3", result.stderr)
+        self.assertIn("--no-deps forbids installing", result.stderr)
+        self.assertIn("Run: sudo pacman -S --needed python", result.stdout)
+        self.assertEqual(self.calls(), [])
         self.assertEqual(list(self.home.iterdir()), [])
 
     def test_every_truncation_of_baked_tail_never_writes_home(self):
@@ -551,6 +571,284 @@ class SetupTests(unittest.TestCase):
 
     def test_no_sandbox_warning_without_sandboxed_browsers(self):
         self.assertNotIn("Sandboxed", self.run_local("--no-deps").stdout)
+
+    def test_python_bootstrap_per_distro_without_python_for_detection(self):
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        cases = [("arch", "pacman", "python"), ("ubuntu", "apt-get", "python3"),
+                 ("fedora", "dnf", "python3"), ("opensuse-leap", "zypper", "python3"),
+                 ("rocky", "dnf", "python3")]
+        for distro, manager, package in cases:
+            with self.subTest(distro=distro):
+                (self.bin / "python3").unlink(missing_ok=True)
+                self.log.unlink(missing_ok=True)
+                self.os_release.write_text(f"ID={distro}\n")
+                result = self.run_local("--yes", env={**self.env, "FAKE_INSTALL_TOOLS": json.dumps({"python3": sys.executable})})
+                calls = [call for call in self.calls() if call[0] == manager]
+                self.assertIn(package, calls[-1])
+                self.assertEqual(len(calls), 2 if manager == "apt-get" else 1)
+                self.assertIn("Python 3.8+ and setup prerequisites found", result.stdout)
+                self.assert_installed()
+
+    def test_missing_python_refusal_and_no_terminal_never_register(self):
+        (self.bin / "python3").unlink()
+        self.os_release.write_text("ID=arch\n")
+        result = self.run_local(expected=1)
+        self.assertIn("No terminal/answer", result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(list(self.home.iterdir()), [])
+        master, slave = pty.openpty()
+        try:
+            os.write(master, b"n\n")
+            result = self.run_local(expected=1, env={**self.env, "YTDLP_SETUP_TTY": os.ttyname(slave)})
+            self.assertIn("nothing was registered", result.stderr)
+            self.assertEqual(self.calls(), [])
+        finally:
+            os.close(master)
+            os.close(slave)
+
+    def test_prerequisite_dry_run_needs_neither_python_nor_coreutils(self):
+        for tool in ("python3", "mkdir", "mktemp", "install"):
+            (self.bin / tool).unlink()
+        self.os_release.write_text("ID=arch\n")
+        result = self.run_local("--dry-run", "--yes")
+        self.assertIn("sudo pacman -S --needed python coreutils", result.stdout)
+        self.assertIn("Would write manifest", result.stdout)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(list(self.home.iterdir()), [])
+
+    def test_prerequisites_rechecked_after_failed_or_ineffective_install(self):
+        (self.bin / "python3").unlink()
+        self.os_release.write_text("ID=arch\n")
+        for overrides, error in [({}, "still missing or unsupported"), ({"FAKE_FAIL_TOOL": "pacman"}, "installation failed")]:
+            with self.subTest(overrides=overrides):
+                result = self.run_local("--yes", expected=1, env={**self.env, **overrides})
+                self.assertIn(error, result.stderr)
+                self.assertFalse(self.manifest.exists())
+                self.assertEqual(list(self.home.iterdir()), [])
+
+    def test_unsupported_or_broken_python_is_not_accepted(self):
+        (self.bin / "python3").unlink()
+        path = self.bin / "python3"
+        self.os_release.write_text("ID=debian\n")
+        for source in (f"#!{sys.executable}\nimport sys\nsys.version_info = (3, 7, 9)\nexec(sys.argv[2])\n",
+                       "#!/bin/sh\nexit 1\n"):
+            with self.subTest(source=source):
+                path.write_text(source)
+                path.chmod(0o755)
+                result = self.run_local("--no-deps", expected=1)
+                self.assertIn("Python must be 3.8+", result.stdout)
+                self.assertFalse(self.manifest.exists())
+
+    def test_missing_prerequisites_on_unknown_or_malicious_distro_are_manual(self):
+        (self.bin / "python3").unlink()
+        sentinel = self.home / "executed"
+        for release in ("ID=unknown", f'ID="$(touch {sentinel})"\nID_LIKE="$(echo arch)"'):
+            with self.subTest(release=release):
+                self.os_release.write_text(release)
+                result = self.run_local("--yes", expected=1)
+                self.assertIn("Unknown distribution", result.stderr)
+                self.assertEqual(self.calls(), [])
+                self.assertEqual(list(self.home.iterdir()), [])
+
+    def test_coreutils_bootstrap_only_when_missing(self):
+        self.os_release.write_text("ID=arch\n")
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        (self.bin / "install").unlink()
+        self.run_local("--yes", env={**self.env, "FAKE_INSTALL_TOOLS": json.dumps({"install": shutil.which("install")})})
+        self.assertEqual(self.calls()[0], ["sudo", "pacman", "-S", "--needed", "coreutils", "--noconfirm"])
+        self.assert_installed()
+
+    def test_missing_sudo_or_package_manager_has_actionable_error(self):
+        self.os_release.write_text("ID=arch\n")
+        (self.bin / "python3").unlink()
+        for tool in ("sudo", "pacman"):
+            with self.subTest(tool=tool):
+                (self.bin / tool).unlink()
+                result = self.run_local("--yes", expected=1)
+                self.assertIn("missing", result.stderr)
+                self.assertIn("administrator", result.stderr)
+                self.assertFalse(self.manifest.exists())
+                self.fake(tool)
+
+    def test_downloader_bootstrap_for_saved_release_script(self):
+        self.os_release.write_text("ID=debian\n")
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        saved_curl = self.root / "saved-curl"
+        saved_curl.write_bytes((self.bin / "curl").read_bytes())
+        saved_curl.chmod(0o755)
+        (self.bin / "curl").unlink()
+        env = {**self.env, "FAKE_INSTALL_TOOLS": json.dumps({"curl": str(saved_curl)})}
+        result = subprocess.run([str(self.bin / "bash"), str(self.release / "setup.sh"), "--yes"],
+                                env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls()[2], ["sudo", "apt-get", "install", "-y", "curl"])
+        self.assert_installed()
+
+    def test_bootstrap_works_from_piped_script_without_swallowing_stdin(self):
+        self.os_release.write_text("ID=arch\n")
+        (self.bin / "python3").unlink()
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        received = self.root / "bootstrap-stdin"
+        (self.bin / "pacman").write_text(
+            f"#!{sys.executable}\nimport pathlib, sys\n"
+            f"pathlib.Path({str(received)!r}).write_text(sys.stdin.read())\n"
+            f"pathlib.Path({str(self.bin / 'python3')!r}).symlink_to({sys.executable!r})\n")
+        result = subprocess.run([str(self.bin / "bash"), "-s", "--", "--yes", "--host-file", str(HOST)],
+                                input=(NATIVE_HOST / "setup.sh").read_text(), env=self.env,
+                                capture_output=True, text=True, timeout=10, start_new_session=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(received.read_text(), "")
+        self.assert_installed()
+
+    def test_runtime_download_offers_curl_if_both_downloaders_absent(self):
+        self.os_release.write_text("ID=debian\n")
+        self.fake("ffmpeg")
+        (self.bin / "curl").unlink()
+        result = self.run_local("--dry-run", "--yes")
+        self.assertIn("Run: sudo apt-get install -y curl", result.stdout)
+        self.assertIn("Download https://github.com/yt-dlp", result.stdout)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse(self.manifest.exists())
+
+    def test_saved_release_without_downloader_honors_no_deps(self):
+        self.os_release.write_text("ID=debian\n")
+        (self.bin / "curl").unlink()
+        result = subprocess.run([str(self.bin / "bash"), str(self.release / "setup.sh"), "--no-deps"],
+                                env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("--no-deps forbids installing", result.stderr)
+        self.assertIn("install -y curl", result.stdout)
+        self.assertEqual(self.calls(), [])
+        self.assertFalse(self.manifest.exists())
+
+    def test_python_bootstrap_root_needs_no_sudo(self):
+        self.os_release.write_text("ID=arch\n")
+        (self.bin / "sudo").unlink()
+        (self.bin / "python3").unlink()
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        self.run_local("--yes", env={**self.env, "YTDLP_SETUP_TEST_EUID": "0",
+                                     "FAKE_INSTALL_TOOLS": json.dumps({"python3": sys.executable})})
+        self.assertEqual(self.calls(), [["pacman", "-S", "--needed", "python", "--noconfirm"]])
+        self.assert_installed()
+
+    def test_local_no_deps_needs_no_downloader(self):
+        (self.bin / "curl").unlink()
+        self.run_local("--no-deps")
+        self.assertEqual(self.calls(), [])
+        self.assert_installed()
+
+    def test_optional_desktop_packages_per_distro(self):
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        for tool in ("zenity", "xdg-open", "xdg-user-dir"):
+            (self.bin / tool).unlink()
+        for distro, manager in [("arch", "pacman"), ("debian", "apt-get"), ("fedora", "dnf"),
+                                ("opensuse-tumbleweed", "zypper"), ("rocky", "dnf")]:
+            with self.subTest(distro=distro):
+                self.os_release.write_text(f"ID={distro}\n")
+                self.log.unlink(missing_ok=True)
+                result = self.run_local("--yes")
+                install = [call for call in self.calls() if call[0] == manager][-1]
+                for package in ("zenity", "xdg-utils", "xdg-user-dirs"):
+                    self.assertIn(package, install)
+                self.assertIn("Optional folder picker", result.stdout)
+                self.assert_installed()
+
+    def test_optional_tools_refusal_failure_and_no_deps_are_nonfatal(self):
+        self.os_release.write_text("ID=arch\n")
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        for tool in ("zenity", "xdg-open", "xdg-user-dir"):
+            (self.bin / tool).unlink()
+        self.run_local()
+        self.assertEqual(self.calls(), [])
+        self.assert_installed()
+        self.run_local("--yes", "--no-deps")
+        self.assertEqual(self.calls(), [])
+        result = self.run_local("--yes", env={**self.env, "FAKE_FAIL_TOOL": "pacman"})
+        self.assertIn("Dependency installation failed", result.stderr)
+        self.assert_installed()
+
+    def test_existing_alternative_picker_prevents_zenity_install(self):
+        (self.bin / "zenity").unlink()
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        for tool in ("kdialog", "yad"):
+            with self.subTest(tool=tool):
+                self.fake(tool)
+                self.run_local("--yes")
+                self.assertEqual(self.calls(), [])
+                (self.bin / tool).unlink()
+
+    def test_missing_ffprobe_offers_ffmpeg_package(self):
+        self.os_release.write_text("ID=arch\n")
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        (self.bin / "ffprobe").unlink()
+        self.run_local("--yes")
+        self.assertEqual(self.calls()[0], ["sudo", "pacman", "-S", "--needed", "ffmpeg", "--noconfirm"])
+
+    def test_rhel_multimedia_only_from_enabled_repository_metadata(self):
+        self.os_release.write_text('ID=rocky\nID_LIKE="rhel fedora"\n')
+        self.fake("yt-dlp")
+        for package in ("ffmpeg", "ffmpeg-free"):
+            with self.subTest(package=package):
+                self.log.unlink(missing_ok=True)
+                self.run_local("--yes", env={**self.env, "FAKE_AVAILABLE_PACKAGES": package})
+                self.assertEqual(self.calls()[0], ["sudo", "dnf", "install", "-y", package])
+        self.log.unlink()
+        result = self.run_local("--yes")
+        self.assertIn("Enable EPEL/RPM Fusion yourself", result.stdout)
+        self.assertEqual(self.calls(), [])
+
+    def test_proxy_only_for_sandboxed_browser_and_available_package(self):
+        self.os_release.write_text("ID=debian\n")
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        env = {**self.env, "FAKE_AVAILABLE_PACKAGES": "xdg-native-messaging-proxy"}
+        self.run_local("--yes", env=env)
+        self.assertEqual(self.calls(), [])
+        self.node_fake(self.bin / "flatpak", "org.mozilla.firefox Firefox")
+        with_proxy = self.run_local("--yes", env=env)
+        if "✗ xdg-native-messaging-proxy is not installed" not in with_proxy.stdout:
+            self.skipTest("Host has a proxy at an absolute system path")
+        self.assertIn("xdg-native-messaging-proxy", self.calls()[-1])
+        self.log.unlink()
+        self.run_local("--yes")
+        self.assertEqual(self.calls(), [])
+        self.run_local("--no-deps", "--yes", env=env)
+        self.assertEqual(self.calls(), [])
+
+    def test_proxy_repository_checks_across_package_managers(self):
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        self.node_fake(self.bin / "flatpak", "org.mozilla.firefox Firefox")
+        for distro, manager in [("arch", "pacman"), ("debian", "apt-get"), ("fedora", "dnf"),
+                                ("opensuse-tumbleweed", "zypper"), ("rocky", "dnf")]:
+            with self.subTest(distro=distro):
+                self.os_release.write_text(f"ID={distro}\n")
+                self.log.unlink(missing_ok=True)
+                result = self.run_local("--yes", env={**self.env, "FAKE_AVAILABLE_PACKAGES": "xdg-native-messaging-proxy"})
+                if "✗ xdg-native-messaging-proxy is not installed" not in result.stdout:
+                    self.skipTest("Host has a proxy at an absolute system path")
+                install = [call for call in self.calls() if call[0] == manager][-1]
+                self.assertIn("xdg-native-messaging-proxy", install)
+                self.log.unlink()
+                self.run_local("--yes")
+                self.assertEqual(self.calls(), [], "No package available, even if zypper returns exit status 0")
+
+    def test_satisfied_dependencies_on_unknown_distro_need_no_manual_install(self):
+        self.fake("yt-dlp")
+        self.fake("ffmpeg")
+        result = self.run_local("--yes")
+        self.assertNotIn("Install yt-dlp and ffmpeg", result.stdout)
+        self.assertIn("desktop tools found", result.stdout)
+        self.assertEqual(self.calls(), [])
 
     def test_missing_option_values_and_unknown_flags(self):
         for flag in ("--host-file", "--target-dir", "--unknown"):

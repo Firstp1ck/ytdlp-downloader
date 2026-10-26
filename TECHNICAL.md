@@ -49,8 +49,8 @@ install extension ──► runtime.onInstalled(reason "install") ──► setu
                                                                    │ ping every 2.5 s while visible
 user pastes:  curl -fsSL …/releases/download/v<version>/setup.sh | bash
                  │                                                 │
-                 ├─ python3 present?                               │
-                 ├─ yt-dlp / ffmpeg missing → distro plan → ask (/dev/tty) → sudo <pkg manager>
+                 ├─ Python 3.8+ / setup utilities missing → ask → distro package manager
+                 ├─ download / desktop tools missing → distro plan → ask (/dev/tty) → package manager
                  ├─ download ytdlp_host.py from the same release, check baked SHA-256
                  └─ install host + write native-messaging manifest ──► next ping: pong ──► "Ready"
 ```
@@ -68,20 +68,34 @@ user pastes:  curl -fsSL …/releases/download/v<version>/setup.sh | bash
   anywhere executes nothing (a cut inside the braces is a syntax error; a bare `main` would have run
   without its flags). Tests cut the script at every byte of its last 256. Prompts read `/dev/tty` because stdin is the script itself;
   package managers get the terminal (or `/dev/null`) as stdin, and pacman gets `--noconfirm` only
-  after the user agreed. Without a terminal and without `--yes`, no dependency is installed (the helper still is).
+  after the user agreed. Without a terminal and without `--yes`, no dependency is installed.
+  The helper is still registered if its required bootstrap prerequisites are already available.
 - **Distros and tools.** Detected from `ID`/`ID_LIKE` in `/etc/os-release` (parsed as data, not
-  sourced). Arch family: `pacman -S --needed yt-dlp ffmpeg deno`. Fedora: `dnf install yt-dlp
-  ffmpeg-free`. openSUSE: `zypper install yt-dlp ffmpeg`. RHEL/Rocky/Alma (`ID_LIKE` lists `rhel`
+  sourced), using a restricted Bash parser so detection works before Python is installed. Python
+  must execute successfully and report 3.8 or newer; missing or unsupported Python, coreutils,
+  and a downloader needed for remote helper installation get a separate consented bootstrap plan.
+  Those prerequisites are rechecked after installation and stop setup if still unusable.
+  `--no-deps` never installs them; `--dry-run` can show plans without Python; uninstall needs no Python.
+  One package-plan/execution path serves both setup phases. Missing sudo or the distro package
+  manager gets administrator guidance, never an attempt to grant privileges. Arch family:
+  `pacman -S --needed yt-dlp ffmpeg deno`. Fedora: `dnf install yt-dlp ffmpeg-free`. openSUSE: `zypper install yt-dlp ffmpeg`. RHEL/Rocky/Alma (`ID_LIKE` lists `rhel`
   before `fedora`): standalone yt-dlp and instructions for ffmpeg (EPEL + RPM Fusion), because
-  their repositories have neither. Debian/Ubuntu: `apt-get update`, then `apt-get install ffmpeg`
+  their base repositories have neither. If cached metadata from enabled repositories already lists
+  ffmpeg or ffmpeg-free, setup offers that package instead; it never enables repositories.
+  Debian/Ubuntu: `apt-get update`, then `apt-get install ffmpeg`
   plus yt-dlp's standalone `yt-dlp_linux`/`yt-dlp_linux_aarch64` in `~/.local/bin` (no Python
   needed; apt's yt-dlp lags behind YouTube). Outside Arch, Deno is the official
   `deno-<arch>-unknown-linux-gnu.zip`, extracted with Python's `zipfile` to `~/.local/bin`. Only
-  missing tools are installed; anything already on the system is left alone. Downloads come from
-  each project's `releases/latest`, are checked against that release's published SHA-256 list
+  missing tools and unsupported Python are offered for installation. Supported existing tools
+  are kept. The ffmpeg check
+  includes ffprobe. Optional offers cover zenity only when no zenity/kdialog/yad exists, xdg-utils
+  for xdg-open, and xdg-user-dirs for configured Downloads-folder detection. The sandbox proxy is
+  offered only for a detected sandboxed browser and a package found in existing repository metadata.
+  Downloads come from each project's `releases/latest`, are checked against that release's published SHA-256 list
   (integrity, not a signature), and are test-run (`--version`). Failures warn and continue: the
-  helper is registered regardless. As root, package managers run without `sudo`. x86_64 and
-  aarch64 only; other architectures get manual instructions.
+  helper is registered regardless once bootstrap prerequisites are satisfied. As root, package
+  managers run without `sudo`. Standalone downloads support x86_64 and aarch64 only; other
+  architectures get manual instructions.
 - **JavaScript runtime.** yt-dlp runs JavaScript downloaded from YouTube to solve its challenges.
   The helper uses **Deno** first (yt-dlp's default and recommendation: its sandbox blocks file and
   network access), then **Node 22 or newer** (yt-dlp's minimum; partly sandboxed). It searches
@@ -96,7 +110,14 @@ user pastes:  curl -fsSL …/releases/download/v<version>/setup.sh | bash
   in `find_js_runtime()` (helper) and `has_js_runtime()`/the Deno install step (`setup.sh`).
 - **Helper version.** `MIN_HOST_VERSION` in `setup-info.js`; an older `pong.hostVersion` makes the
   setup page ask for an update with the same command. `ping` with `reconnect: true` drops an idle
-  port first, so an updated helper is picked up without a browser restart.
+  port first, so an updated helper is picked up without a browser restart. Version 1.2.0 adds the
+  extended dependency report, and this extension requires it. The setup page always renders twelve
+  checks, leaves unreported values pending, and distinguishes required failures from recommended,
+  optional and installer-only warnings. Warnings and actionable unknowns keep installation guidance
+  and visible-tab polling active; a fully healthy page stops polling. Unsupported-Python repair
+  also requests a guarded idle reconnection so the new interpreter is used. When xdg-user-dir
+  availability changes, the host refreshes its default directory with a one-second lookup; existing
+  jobs retain their selected paths and future default-directory downloads use the refreshed value.
 
 ## Design decisions
 
@@ -105,7 +126,7 @@ user pastes:  curl -fsSL …/releases/download/v<version>/setup.sh | bash
 | WebExtension + native messaging, not a Zen mod or userChrome.js | Mods are CSS only. userChrome.js loaders are unsupported and break on browser updates. Native messaging is the supported way to run a local program. |
 | Manifest V2 with a persistent background page | Firefox keeps supporting MV2. A persistent page keeps the native port and progress tracking alive for the whole download; MV3 event pages can be suspended. |
 | Long-lived `runtime.connectNative` port | `sendNativeMessage` stops the host after the first reply, which would kill yt-dlp. |
-| Python host, stdlib only | yt-dlp is Python, so Python is already there. No pip dependencies to install. |
+| Python host, stdlib only | Setup offers Python 3.8+ when missing. The host has no pip dependencies. |
 | No "extra yt-dlp arguments" setting; `--ignore-config` | Only enumerated values reach the command line, and a user config can't add `--exec` hooks or break the output templates the host parses. |
 | Per-job staging directory | Two jobs with the same title would share `.part` files, and `-x` deletes its source after extraction, which could be a finished video with the same name. Staging isolates each job; the host then moves files into place without overwriting. |
 | Manifest in `~/.mozilla/native-messaging-hosts` | Firefox and Zen both read it there; Zen's `libxul.so` only knows the `.mozilla` directory. |
@@ -161,9 +182,16 @@ Missing option keys get host defaults; unknown keys and invalid values are rejec
 ### Host → extension
 
 ```jsonc
-{"type": "pong", "hostVersion": "1.1.0",
+{"type": "pong", "hostVersion": "1.2.0",
  "ytDlp": {"found": true, "path": "/usr/bin/yt-dlp", "version": "2026.10.21"},  // version null = doesn't run
  "ffmpeg": {"found": true, "path": "/usr/bin/ffmpeg"},
+ "python": {"found": true, "path": "/usr/bin/python3", "version": "3.12.0", "supported": true},
+ "ffprobe": {"found": true, "path": "/usr/bin/ffprobe"},
+ "downloader": {"found": true, "name": "curl", "path": "/usr/bin/curl"},
+ "coreutils": {"found": true, "missing": []},
+ "opener": {"found": true, "path": "/usr/bin/xdg-open"},
+ "userDirs": {"found": true, "path": "/usr/bin/xdg-user-dir"},
+ "nativeMessagingProxy": {"found": false, "path": null, "applicable": null},
  "jsRuntime": {"name": "deno" | "node", "path": "/usr/bin/deno"} | null,   // since 1.1.0
  "defaultSaveDir": "/home/u/Downloads", "picker": "zenity" | "kdialog" | "yad" | null}
 {"type": "queued",    "id": "..."}                          // both slots busy
@@ -177,6 +205,11 @@ Missing option keys get host defaults; unknown keys and invalid values are rejec
 {"type": "directory", "requestId": "...", "path": "/abs" | null}       // null = dialog cancelled
 ```
 
+- New dependency fields are reported since helper 1.2.0. Python describes the running interpreter.
+  Coreutils covers cat, mkdir, install, rm, rmdir, mktemp and uname. A downloader may be curl or wget.
+  Proxy applicability is true only with explicit sandbox environment markers; otherwise it is null,
+  not a claim that no proxy is needed. These status fields use executable discovery; an XDG
+  availability change also refreshes the cached directory. No package-manager probes are added.
 - `finished.files` lists at most 100 paths; `fileCount` is the real total. Firefox drops host
   messages over 1 MB, and a long playlist's paths could exceed that.
 - `error.requestId` is present when the error answers a `pickDirectory`.
@@ -231,7 +264,7 @@ parses both.
 
 `--audio-quality` only applies when yt-dlp converts. If the source codec already matches, yt-dlp
 copies the stream. Every job needs ffmpeg: video merges streams, and `-x` probes with ffprobe even
-when it only copies. The host checks for ffmpeg before it starts a job.
+when it only copies. The host checks for both ffmpeg and ffprobe before it starts a job.
 
 After yt-dlp exits 0, the host moves each reported file from staging into `saveDir`, keeping the
 playlist subfolder. If the target exists it picks `name (2).ext`, `name (3).ext`, and so on. The
@@ -267,8 +300,10 @@ host. Web pages can't talk to it. Inside that boundary:
 - Linux only. Flatpak/Snap browsers can only start the helper through `xdg-native-messaging-proxy`
   (Firefox 157+, [bug 1955255](https://bugzilla.mozilla.org/show_bug.cgi?id=1955255); the proxy
   service must be installed on the host) or, for Snap Firefox, its WebExtensions portal. `setup.sh`
-  detects sandboxed Firefox-based browsers (`flatpak list`, `snap list`) and reports whether the
-  proxy is installed. This hasn't been tested with a real sandboxed browser.
+  detects sandboxed Firefox-based browsers (`flatpak list`, `snap list`), reports whether the
+  proxy is installed, and offers an available package from configured repository metadata. It does
+  not configure portals or guarantee a particular sandboxed browser works. This hasn't been tested
+  with a real sandboxed browser.
 - One helper folder for all browsers: `~/.mozilla/native-messaging-hosts`. Firefox hard-codes the
   name (Zen keeps it, verified in its `libxul.so`), and LibreWolf reads it in addition to its own
   folder since 140 ([LibreWolf #2308](https://codeberg.org/librewolf/issues/issues/2308)), which is

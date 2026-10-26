@@ -104,7 +104,10 @@ HOME=$(mktemp -d) ./native-host/install.sh --target-dir "$(mktemp -d)"
 ## Testing the setup script
 
 `native-host/tests/test_setup.py` runs `setup.sh` against fake `sudo`/package managers and a local
-HTTP "release". To try it by hand without touching your real profile:
+HTTP "release". Python/bootstrap tests remove the isolated PATH's interpreter and let fake package
+managers restore it. Tests also cover missing downloaders/coreutils, optional desktop tools,
+ffprobe, repository-gated proxy/RHEL packages, and refusal/failure/no-op paths. No real system
+package manager is invoked. To try it by hand without touching your real profile:
 
 ```sh
 mkdir -p /tmp/rel && sed -e 's/^RELEASE_VERSION=""/RELEASE_VERSION="0.0.0"/' \

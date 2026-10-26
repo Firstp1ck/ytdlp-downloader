@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>v1.3.1 dependency setup report</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#121c2d;--panel-2:#18253a;--text:#e8eef8;--muted:#a9b7cb;--line:#2b3b55;--green:#50d890;--yellow:#f7c65c;--red:#ff7373;--blue:#65b5ff;--code:#07101c;--radius-lg:16px;--shadow:0 14px 36px rgb(0 0 0 / 22%)}
+*{box-sizing:border-box}html{background:var(--background,radial-gradient(ellipse at 12% 0%,#182c4a,var(--bg) 58%));color:var(--foreground,var(--text));font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}body{margin:0;background:transparent}main{width:min(1120px,calc(100% - 32px));margin:28px auto 48px}header,section{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:var(--radius-lg);padding:24px;margin-bottom:18px;box-shadow:var(--shadow)}header{padding:30px}h1{font-size:clamp(1.8rem,5vw,2.6rem);line-height:1.2;margin:12px 0}h2{font-size:1.4rem;margin:0 0 16px;padding-bottom:10px;border-bottom:1px solid var(--line)}h3{font-size:1.05rem;margin:20px 0 8px}p{margin:8px 0 14px}a{color:var(--blue)}a:focus-visible{outline:2px solid var(--blue);outline-offset:4px}.muted,figcaption{color:var(--muted)}.badge{display:inline-block;border:1px solid var(--green);border-radius:99px;padding:3px 10px;color:var(--green);font-size:.85rem}.callout{padding:14px 16px;background:var(--panel-2);border-left:4px solid var(--blue);border-radius:10px}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px}.metric{padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)}.metric strong{display:block;font-size:1.6rem;color:var(--green)}table{width:100%;border-collapse:collapse;text-align:left;font-size:.93rem}caption{text-align:left;font-weight:600;margin-bottom:8px}th,td{padding:11px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}th{color:var(--muted)}code{font-family:ui-monospace,monospace;font-size:.9em;overflow-wrap:anywhere}pre{background:var(--code);border:1px solid var(--line);border-radius:10px;padding:15px;white-space:pre-wrap;overflow-wrap:anywhere}figure{margin:14px 0}svg{width:100%;height:140px;display:block}figcaption{font-size:.88rem;margin-top:8px}li{margin-bottom:7px}.accepted{color:var(--green)}.deferred{color:var(--yellow)}nav{display:flex;gap:8px 18px;flex-wrap:wrap;font-size:.9rem;margin-top:15px}.source-list{padding-left:22px}@media(max-width:620px){main{width:calc(100% - 20px);margin:12px auto 24px}header,section{padding:16px}th,td{padding:9px 5px;font-size:.85rem}svg{height:110px}.metrics{grid-template-columns:1fr 1fr}}@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important}}@media print{html{background:white;color:#111}main{width:100%;margin:0}header,section{background:white;color:#111;box-shadow:none;border-color:#aaa;break-inside:avoid}.muted,figcaption,th{color:#444}a{color:#154c88}pre,.metric,.callout{background:#f4f4f4;color:#111;border-color:#aaa}nav{display:none}.metric strong,.accepted,.deferred,.badge{color:#111}svg{print-color-adjust:exact}}
+</style>
+</head>
+<body><main>
+<header>
+<span class="badge">Implementation and review verified</span>
+<h1>Dependency setup, visible and actionable</h1>
+<p>Extension <strong>1.3.1</strong> and helper <strong>1.2.0</strong> expose the full dependency checklist instead of only four checks. Missing tools have installation guidance; unknown reports are not guessed.</p>
+<p class="callout">Required failures prevent Ready. Optional or installer-only warnings remain visible without blocking downloads. The user runs the terminal setup command and confirms package installation.</p>
+<p class="muted">This report records source validation and independent review. The <a href="https://github.com/Firstp1ck/ytdlp-downloader/releases/tag/v1.3.1">GitHub release page</a> records publication and downloadable assets. Mozilla submission is left to the user.</p>
+<nav aria-label="Report sections"><a href="#overview">Checklist</a><a href="#design">Design</a><a href="#validation">Verification</a><a href="#usage">Install</a><a href="#evidence">Evidence and limits</a></nav>
+</header>
+<section id="overview">
+<h2>What the setup page shows</h2>
+<table data-overview>
+<caption>Twelve checks, grouped by their actual effect</caption>
+<thead><tr><th scope="col">Category</th><th scope="col">Checks</th><th scope="col">Missing or unknown</th></tr></thead>
+<tbody>
+<tr><td>Required</td><td>Helper, Python 3.8+, yt-dlp, ffmpeg, ffprobe</td><td>Confirmed failure prevents Ready. An unreachable helper leaves dependent checks pending; an incomplete required report requests update/reinstallation.</td></tr>
+<tr><td>Recommended</td><td>Deno or Node 22+</td><td>Warns about possible YouTube format limitations and offers setup.</td></tr>
+<tr><td>Optional convenience</td><td>Folder picker, xdg-open, xdg-user-dir</td><td>Shows warnings and the relevant fallback. Downloads remain available.</td></tr>
+<tr><td>Installer only</td><td>curl/wget, coreutils</td><td>Offers installation without claiming current downloads are blocked. Wget and browser-save bootstrap alternatives are supported.</td></tr>
+<tr><td>Conditional</td><td>Sandbox proxy</td><td>Missing sandbox evidence is not proof of a native browser. Unknown applicability is clearly conditional and does not trigger a spurious mandatory failure.</td></tr>
+</tbody></table>
+</section>
+<section id="design">
+<h2>One diagnostic contract, shared UI state</h2>
+<figure data-visual-kind="diagram" data-purpose="Show how native diagnostics become consistent setup guidance" data-source="native-host/ytdlp_host.py and extension/shared/setup-info.js">
+<svg role="img" aria-labelledby="flow-title flow-desc" viewBox="0 0 900 140">
+<title id="flow-title">Dependency reporting and repair flow</title><desc id="flow-desc">The native helper reports executable and interpreter facts. Shared state classifies them. Setup, settings and popup render that state. A user-run setup command repairs dependencies, and the next ping refreshes the UI.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8" fill="#65b5ff"/></marker></defs>
+<g fill="#18253a" stroke="#2b3b55"><rect x="5" y="20" width="195" height="60" rx="12"/><rect x="235" y="20" width="195" height="60" rx="12"/><rect x="465" y="20" width="195" height="60" rx="12"/><rect x="695" y="20" width="195" height="60" rx="12"/></g>
+<g fill="#e8eef8" font-family="system-ui,sans-serif" font-size="16" text-anchor="middle"><text x="102" y="46">Native helper 1.2.0</text><text x="102" y="67">Interpreter and tool facts</text><text x="332" y="46">Pong diagnostics</text><text x="332" y="67">Present / absent / unknown</text><text x="562" y="46">Shared setup state</text><text x="562" y="67">Requirements and guidance</text><text x="792" y="46">Setup / settings / popup</text><text x="792" y="67">Consistent status and action</text></g>
+<g stroke="#65b5ff" stroke-width="2" marker-end="url(#arrow)"><path d="M202 50H231"/><path d="M432 50H461"/><path d="M662 50H691"/></g><text x="450" y="120" text-anchor="middle" fill="#a9b7cb" font-family="system-ui,sans-serif" font-size="16">User-confirmed terminal setup → next ping updates the checklist</text>
+</svg>
+<figcaption>All status rendering uses shared derivation. The extension does not run a shell or install packages itself.</figcaption>
+</figure>
+<ul><li>Old helpers explicitly request version 1.2.0. Python cannot be checked independently if no helper can start.</li><li>Visible pages keep polling for actionable warnings or unknown checks; hidden pages pause. A fully healthy page stops scheduled polling.</li><li>Python repair requests a guarded idle reconnection. Installing XDG directory detection refreshes the default for future downloads, without redirecting jobs already created.</li><li>The installer parses distro identity as data, asks before package installation, honors no-op flags and never adds repositories or AUR tools. Proxy/RHEL package offers use existing repository metadata.</li></ul>
+</section>
+<section id="validation">
+<h2>Verification and independent review</h2>
+<div class="metrics"><div class="metric"><strong>116</strong>Helper tests passed</div><div class="metric"><strong>158</strong>Extension tests passed</div><div class="metric"><strong>12</strong>Visible checklist rows</div><div class="metric"><strong>2</strong>Independent review runs</div></div>
+<p>Shellcheck, shell and JavaScript syntax, diff hygiene, framed native ping, source/package equality and deterministic packaging passed. The existing v1.3.0 package was preserved and independently rebuilt byte-identically.</p>
+<p>Disposable browser fixtures checked seven states at 1000px: healthy, required failure, optional warnings, old helper, wget-only, malformed diagnostics and unreachable helper. Four states at 390px had no horizontal overflow. Light appearance and an accessibility snapshot were checked. Browser/native APIs were mocked for those UI cases; the baseline diagnostic payload came from a real framed ping to the source helper. A browser repair scenario also verified non-reconnecting then reconnecting pings followed by Ready. An isolated framed-host test added a fake XDG tool mid-session, verified the new default in pong, and confirmed a subsequent fake download landed in that configured folder.</p>
+<table><caption>Reviewer findings and verified disposition</caption><thead><tr><th scope="col">Review</th><th scope="col">Finding</th><th scope="col">Disposition</th></tr></thead><tbody>
+<tr><td>Codex, native/installer</td><td>Unsupported-Python repair kept the old interpreter process</td><td class="accepted">Accepted. Regression failed first; guarded reconnection now recovers.</td></tr>
+<tr><td>Codex, native/installer</td><td>New XDG detection left the cached default directory stale</td><td class="accepted">Accepted. Regression failed first; availability changes refresh pong and subsequent download defaults with a bounded lookup.</td></tr>
+<tr><td>Fable 5.1, UI</td><td>README understated desktop diagnostics</td><td class="accepted">Accepted. Documentation now matches optional UI rows.</td></tr>
+<tr><td>Fable 5.1, UI</td><td>Settings lost executable paths</td><td class="accepted">Accepted. yt-dlp/ffmpeg paths restored and asserted.</td></tr>
+<tr><td>Fable 5.1, UI</td><td>Malformed optional reports can reconnect repeatedly</td><td class="deferred">Deferred, low severity. Reconnection enables repaired helpers to replace stale reports; the current helper reports all fields and busy downloads are protected.</td></tr>
+<tr><td>Fable 5.1, UI</td><td>Old-helper consumer branch lacked a direct test</td><td class="accepted">Accepted. Settings and popup now have an explicit 1.1.0 → 1.2.0 update case.</td></tr>
+</tbody></table>
+<p>Testing also exposed a staging-cleanup race. Finished events now follow cleanup; a deterministic order test and ten repeated subprocess runs passed. Accepted fixes were revalidated in the complete suites.</p>
+</section>
+<section id="usage">
+<h2>Install and publish separately</h2>
+<ol><li>Install <a href="https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.1/ytdlp-downloader-1.3.1.xpi">ytdlp-downloader-1.3.1.xpi</a>. This GitHub package is unsigned; Mozilla submission/signing is a separate user action.</li><li>Update the helper from the setup page. Its command is pinned to the matching release:</li></ol>
+<pre><code>curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.1/setup.sh | bash</code></pre>
+<p>If testing from the checkout instead, run the local script. This changes helper registration and asks before installing missing packages:</p>
+<pre><code>cd ytdlp-downloader
+bash native-host/setup.sh --host-file native-host/ytdlp_host.py --dry-run
+bash native-host/setup.sh --host-file native-host/ytdlp_host.py</code></pre>
+<p>For Mozilla, submit the versioned XPI through the website. Readable source is packaged directly; reproducible packaging uses Python's standard library:</p>
+<pre><code>python3 native-host/build_xpi.py extension dist/ytdlp-downloader-1.3.1.xpi</code></pre>
+</section>
+<section id="evidence">
+<h2>Evidence and remaining limits</h2>
+<ul class="source-list"><li><a href="../plans/archive/setup-dependency-ui.md">Canonical local plan and dispositions</a>. The local archive is intentionally ignored by Git.</li><li><a href="../native-host/ytdlp_host.py">Native diagnostics and download lifecycle</a>; <a href="../native-host/setup.sh">consent-based installer</a>.</li><li><a href="../extension/shared/setup-info.js">Shared setup state</a>; <a href="../extension/setup/setup.js">setup rendering and polling</a>; <a href="../extension/tests/setup-consumers.test.js">settings/popup regressions</a>.</li><li><a href="../TECHNICAL.md">Protocol and architecture</a>; <a href="../CHANGELOG.md">release notes</a>; <a href="../docs/AMO.md">Mozilla reviewer notes</a>.</li></ul>
+<p>Confidence in source-level behavior is high, supported by tests, independent reviews and browser fixtures. Real package installation across every supported distro, actual interpreter replacement, sandbox-browser compatibility and an actual Python 3.8 runtime were not exercised. Presence checks do not prove every optional desktop tool will work in a particular graphical session.</p>
+<p>No system packages or live browser profiles were changed during development. No Mozilla submission was performed. Baseline Bash, a working package manager and administrative authority cannot be created by an installer that lacks them; clear manual guidance remains necessary.</p>
+</section>
+</main></body></html>

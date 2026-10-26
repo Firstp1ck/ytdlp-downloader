@@ -2,8 +2,8 @@
 
 /*
  * First-run setup page. Pings the helper through the background page, renders
- * the state from YtdlpSetup.deriveSetupState, and polls until everything is
- * installed so the page flips to "Ready" on its own after the user runs the command.
+ * the state from YtdlpSetup.deriveSetupState, and polls while actionable setup
+ * failures or warnings remain so repairs appear automatically.
  */
 
 const {
@@ -20,10 +20,10 @@ const POLL_INTERVAL_MS = 2500;
 const COPIED_FEEDBACK_MS = 2500;
 const COMMAND_STATES = new Set(["missing", "outdated", "tools"]);
 const STATUS_ICONS = Object.freeze({ ok: "✓", bad: "✗", warn: "⚠", pending: "…" });
-const STATUS_WORDS = Object.freeze({ ok: "Done", bad: "Needs action", warn: "Recommended", pending: "Not checked yet" });
+const STATUS_WORDS = Object.freeze({ ok: "Passed", bad: "Needs action", warn: "Warning", pending: "Pending" });
 
 const VERSION = browser.runtime.getManifest().version;
-const COMMAND = setupCommand(VERSION);
+let displayedCommand = setupCommand(VERSION);
 
 const card = document.getElementById("setup-card");
 const stateTitle = document.getElementById("state-title");
@@ -37,6 +37,7 @@ const errorDetails = document.getElementById("error-details");
 const errorText = document.getElementById("error-text");
 const readyBlock = document.getElementById("ready-block");
 const readyWarning = document.getElementById("ready-warning");
+const warningText = document.getElementById("warning-text");
 const pollStatus = document.getElementById("poll-status");
 const pollText = document.getElementById("poll-text");
 const checkAgainButton = document.getElementById("check-again");
@@ -50,6 +51,19 @@ let copiedTimer = null;
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
+
+/** Setup skips existing yt-dlp; interpreter repair is separate from replacing that executable. */
+function repairAdvice(view) {
+  const guidance = [];
+  if (view.unsupportedTools.length) {
+    guidance.push("Install Python 3.8 or newer and reinstall the helper so it uses a supported interpreter.");
+  }
+  if (view.brokenTools.includes("yt-dlp")) {
+    guidance.push("Update yt-dlp with your package manager, or remove it before running setup again. " +
+      "Setup does not automatically replace an existing broken yt-dlp. Check that your Python also meets yt-dlp's requirements.");
+  }
+  return guidance.join(" ");
+}
 
 /**
  * Heading and explanation for a setup state.
@@ -68,31 +82,39 @@ function describe(view) {
           "yt-dlp for this extension. One command installs it.",
       };
     case "outdated":
+      if (view.updateReason === "diagnostics") {
+        return {
+          title: "Update or reinstall the helper",
+          lead: `The helper reports version ${view.hostVersion}, but required diagnostics are missing or invalid. ` +
+            "Download readiness cannot be confirmed. Update or reinstall the helper, then check again; the next check reconnects to it.",
+        };
+      }
+      if (view.updateReason === "versionUnknown") {
+        return {
+          title: "Update or reinstall the helper",
+          lead: "The helper answered without a valid version, so compatibility cannot be confirmed. " +
+            `Update or reinstall helper ${MIN_HOST_VERSION} or newer, then check again.`,
+        };
+      }
       return {
         title: "Update the helper",
-        lead:
-          `The installed helper is version ${view.hostVersion ?? "unknown"}; this extension needs ` +
+        lead: `The installed helper is version ${view.hostVersion}; this extension needs ` +
           `${MIN_HOST_VERSION} or newer. The same command updates it.`,
       };
     case "tools": {
-      const missing = view.missingTools.length > 0;
-      const broken = view.brokenTools.length > 0;
       const actions = [];
-      if (missing) actions.push(`install ${joinNames(view.missingTools)}`);
-      if (broken) actions.push(`repair ${joinNames(view.brokenTools)}`);
+      if (view.missingTools.length) actions.push(`install ${joinNames(view.missingTools)}`);
+      if (view.brokenTools.length) actions.push(`repair ${joinNames(view.brokenTools)}`);
+      if (view.unsupportedTools.length) actions.push("update Python");
       const title = actions.join(" and ");
-      const cause = broken ? ", often because the system's Python is too old for it" : "";
-      // setup.sh only installs tools that are absent; a broken yt-dlp counts as
-      // present, so the user has to update or remove it first.
-      const lead = broken
-        ? `The helper is connected, but ${describeToolProblems(view)}${cause}. Update yt-dlp with your package manager, ` +
-          "or remove it and run the same command again, which installs a working one" +
-          (missing ? " together with what's missing." : ".")
-        : `The helper is connected, but ${describeToolProblems(view)}. Run the same command again: it offers to install what's missing.`;
-      return { title: title.charAt(0).toUpperCase() + title.slice(1), lead };
+      const guidance = [repairAdvice(view), "The setup command offers to install missing dependencies."].filter(Boolean).join(" ");
+      return {
+        title: title.charAt(0).toUpperCase() + title.slice(1),
+        lead: `The helper is connected, but ${describeToolProblems(view)}. Downloads are blocked. ${guidance}`,
+      };
     }
     default:
-      return { title: "Ready to download", lead: "The helper, yt-dlp, and ffmpeg are installed." };
+      return { title: "Ready to download", lead: "The helper, supported Python, yt-dlp, ffmpeg and ffprobe passed the required checks." };
   }
 }
 
@@ -102,6 +124,7 @@ function describe(view) {
  */
 function checklistRow(check) {
   const row = document.createElement("li");
+  row.dataset.key = check.key;
   row.dataset.status = check.status;
   const icon = document.createElement("span");
   icon.className = "check-icon";
@@ -111,12 +134,15 @@ function checklistRow(check) {
   label.className = "check-label";
   label.textContent = check.label;
   const word = document.createElement("span");
-  word.className = "visually-hidden";
-  word.textContent = `: ${STATUS_WORDS[check.status]}.`;
+  word.className = "check-status";
+  word.textContent = STATUS_WORDS[check.status];
+  const requirement = document.createElement("span");
+  requirement.className = "check-requirement";
+  requirement.textContent = check.requirement;
   const detail = document.createElement("span");
   detail.className = "check-detail";
   detail.textContent = check.detail;
-  row.append(icon, label, word, detail);
+  row.append(icon, label, word, requirement, detail);
   return row;
 }
 
@@ -125,33 +151,71 @@ function checklistRow(check) {
  * @param {import("../shared/setup-info.js").SetupView} view
  */
 function render(view) {
-  const changed = view.state !== current.state;
+  const changed = JSON.stringify(view) !== JSON.stringify(current);
   current = view;
   const { title, lead } = describe(view);
   card.dataset.state = view.state;
   stateTitle.textContent = title;
-  stateLead.textContent = lead;
+  const toolProblems = describeToolProblems(view);
+  stateLead.textContent = view.state === "outdated" && toolProblems
+    ? `${lead} Required tools also need attention: ${toolProblems}. ${repairAdvice(view)}`.trim()
+    : lead;
   checklist.replaceChildren(...view.checklist.map(checklistRow));
-  const runtimeWarning = view.state === "ready" && view.warnings.includes("jsRuntime");
-  readyWarning.hidden = !runtimeWarning;
-  // The same command installs Deno, so a ready page with the warning still needs it.
-  commandBlock.hidden = !COMMAND_STATES.has(view.state) && !runtimeWarning;
+  const method = view.setupMethod === "unknown" ? "curl" : view.setupMethod;
+  const nextCommand = setupCommand(VERSION, method);
+  if (nextCommand !== displayedCommand) {
+    clearTimeout(copiedTimer);
+    copyStatus.textContent = "";
+    delete copyStatus.dataset.state;
+    copyButton.textContent = "Copy";
+  }
+  displayedCommand = nextCommand;
+  commandCode.textContent = displayedCommand;
+  document.getElementById("command-label").textContent = method === "browser"
+    ? "Save the script first, then open a terminal in its folder and run:"
+    : "Open a terminal, paste this command, and press Enter:";
+  const browserSave = "Open “View the script first” below, save that version’s script as setup.sh, then run bash setup.sh in its folder.";
+  const downloaderUnknown = view.state === "checking" || view.state === "missing"
+    ? "Downloader availability cannot be checked until the helper answers."
+    : "The helper has not reported which downloader is available.";
+  document.getElementById("command-alternatives").textContent = view.setupMethod === "browser"
+    ? `Neither curl nor wget was found. ${browserSave}`
+    : view.setupMethod === "unknown"
+      ? `${downloaderUnknown} If curl is unavailable, use ${setupCommand(VERSION, "wget")}, or use your browser: ${browserSave}`
+      : `Using ${method} to download this release’s setup script. Browser alternative: ${browserSave}`;
+  const warningNames = view.checklist.filter((check) => view.warnings.includes(check.key)).map((check) => check.label);
+  const unknownNames = view.checklist.filter((check) => view.unknownChecks.includes(check.key) &&
+    !["python", "ytdlp", "ffmpeg", "ffprobe"].includes(check.key)).map((check) => check.label);
+  const guidance = [];
+  if (warningNames.length) {
+    guidance.push(`Optional or setup tools unavailable: ${joinNames(warningNames)}. ` +
+      "These warnings do not block downloads. The setup command offers to install missing dependencies.");
+  }
+  if (unknownNames.length) {
+    guidance.push(`Optional or setup checks not confirmed: ${joinNames(unknownNames)}. ` +
+      "Update or reinstall the helper and check again; these tools have not been reported missing.");
+  }
+  readyWarning.hidden = guidance.length === 0;
+  warningText.textContent = guidance.join(" ");
+  commandBlock.hidden = !COMMAND_STATES.has(view.state) && !(view.state === "ready" && view.needsAttention);
   errorDetails.hidden = !view.error;
   errorText.textContent = view.error ?? "";
   readyBlock.hidden = view.state !== "ready";
-  if (changed) announce.textContent = title;
+  if (changed) announce.textContent = `${title}. ${guidance.join(" ")}`;
   updatePollStatus();
 }
 
 function updatePollStatus() {
-  const ready = current.state === "ready";
-  pollStatus.hidden = ready;
-  pollStatus.dataset.active = String(!document.hidden && !ready);
-  if (current.state === "checking") pollText.textContent = "Checking…";
-  else if (document.hidden) pollText.textContent = "Paused while this tab is in the background.";
+  pollStatus.hidden = !current.needsAttention;
+  pollStatus.dataset.active = String(!document.hidden && current.needsAttention);
+  if (document.hidden) pollText.textContent = "Paused while this tab is in the background.";
+  else if (current.state === "checking") pollText.textContent = "Checking…";
   else if (current.state === "tools") {
-    pollText.textContent = `Waiting for ${joinNames([...current.missingTools, ...current.brokenTools])}…`;
-  }
+    pollText.textContent = `Waiting for ${joinNames([...current.missingTools, ...current.brokenTools, ...current.unsupportedTools])}…`;
+  } else if (current.updateReason === "diagnostics" || current.unknownChecks.length) {
+    pollText.textContent = "Waiting for complete helper diagnostics…";
+  } else if (current.state === "ready") pollText.textContent = "Waiting for optional or setup tools…";
+  else if (current.state === "outdated") pollText.textContent = "Waiting for the updated helper…";
   else pollText.textContent = "Waiting for the helper…";
 }
 
@@ -165,32 +229,32 @@ async function check() {
   checking = true;
   clearTimeout(pollTimer);
   pollTimer = null;
-  // A running old helper keeps answering with its old version after an update,
-  // so an outdated helper is pinged on a fresh connection.
-  const reconnect = current.state === "outdated";
+  // Reinstalling changes files, not an already running helper. Refresh its
+  // connection for old versions, interpreter repairs or incomplete reports; busy jobs stay alive.
+  const reconnect = current.state === "outdated" || current.unsupportedTools.length > 0 || current.unknownChecks.length > 0;
   let result;
   try {
     result = await browser.runtime.sendMessage({ type: "ping", reconnect });
   } catch (error) {
-    result = { ok: false, error: `Background page unavailable: ${error.message}` };
+    result = { ok: false, error: `Background page unavailable: ${error?.message ?? "Unknown error"}` };
   }
   checking = false;
   render(deriveSetupState(result));
   schedulePoll();
 }
 
-/** Polls only while something is missing and the tab is visible. */
+/** Polls while actionable failures, warnings or unknown reports remain, in visible tabs only. */
 function schedulePoll() {
   clearTimeout(pollTimer);
   pollTimer = null;
-  if (current.state !== "ready" && !document.hidden) {
+  if (current.needsAttention && !document.hidden) {
     pollTimer = setTimeout(() => void check(), POLL_INTERVAL_MS);
   }
   updatePollStatus();
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && current.state !== "ready") void check();
+  if (!document.hidden) void check();
   else schedulePoll();
 });
 
@@ -224,7 +288,7 @@ function showCopyStatus(text, state) {
 
 copyButton.addEventListener("click", async () => {
   try {
-    await navigator.clipboard.writeText(COMMAND);
+    await navigator.clipboard.writeText(displayedCommand);
     showCopyStatus("Copied. Paste it into a terminal.", "ok");
   } catch {
     selectCommand();
@@ -242,7 +306,6 @@ document.getElementById("open-settings").addEventListener("click", () => void br
 // Start
 // ---------------------------------------------------------------------------
 
-commandCode.textContent = COMMAND;
 document.getElementById("script-link").href = setupScriptUrl(VERSION);
 document.getElementById("extension-version").textContent = `v${VERSION}`;
 document.getElementById("manual-link").href = MANUAL_INSTALL_URL;

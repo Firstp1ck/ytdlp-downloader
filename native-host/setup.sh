@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Accept `sh setup.sh` as well when /bin/sh is dash. Piped setup requires bash.
 if [ -z "${BASH_VERSION:-}" ]; then
-    if [ -f "$0" ]; then exec bash "$0" "$@"; fi
-    echo 'Setup needs bash: use curl … | bash.' >&2
+    if [ -f "$0" ] && command -v bash >/dev/null 2>&1; then exec bash "$0" "$@"; fi
+    echo 'Setup needs bash. Install bash with your package manager, then run bash setup.sh or curl … | bash.' >&2
     exit 1
 fi
 set -euo pipefail
@@ -21,6 +21,8 @@ temp_dir=""
 package_command=()
 package_prepare=()
 confirmed_flags=()
+package_manager=""
+sandboxed_browser_found=false
 install_ytdlp=false
 install_deno=false
 ytdlp_base=https://github.com/yt-dlp/yt-dlp/releases/latest/download
@@ -36,7 +38,10 @@ Registers the helper for Firefox, Zen and other Firefox-based browsers in
 ~/.mozilla/native-messaging-hosts, the folder they all read; explicit --target-dir
 values replace it.
 --yes accepts dependency installs; --no-deps skips them. --uninstall removes only
-the helper and its manifests. Warns about Flatpak/Snap browsers it finds.
+the helper and its manifests. Missing Python 3.8+, coreutils and a downloader are
+required prerequisites; setup stops if they cannot be installed. Other offers
+include ffmpeg/ffprobe, a folder picker and XDG desktop tools. Warns about
+Flatpak/Snap browsers and offers their proxy only from configured repositories.
 Test overrides: YTDLP_SETUP_BASE_URL replaces the release download directory;
 YTDLP_SETUP_OS_RELEASE replaces /etc/os-release; YTDLP_SETUP_TTY replaces /dev/tty.
 Test-only: YTDLP_SETUP_TEST_EUID overrides the root check (never grants privileges).
@@ -82,6 +87,7 @@ check_sandboxed_browsers() {
     local browsers line
     browsers=$(sandboxed_browsers)
     [[ -n "$browsers" ]] || return 0
+    sandboxed_browser_found=true
     while IFS= read -r line; do printf '⚠ Sandboxed browser found: %s\n' "$line"; done <<<"$browsers"
     echo '  Flatpak/Snap browsers can only start the helper through xdg-native-messaging-proxy'
     echo '  (browsers based on Firefox 157 or newer). Snap Firefox may use its portal instead.'
@@ -127,35 +133,112 @@ download() {
 }
 
 distro_family() {
-    # Parse data rather than sourcing an externally supplied os-release file.
-    python3 - "${YTDLP_SETUP_OS_RELEASE:-/etc/os-release}" <<'PY'
-import shlex
-import sys
+    # Bootstrap must work without Python; never execute os-release as shell code.
+    local release="${YTDLP_SETUP_OS_RELEASE:-/etc/os-release}" key value name id="" like="" names=()
+    if [[ -r "$release" ]]; then
+        while IFS='=' read -r key value || [[ -n "$key" ]]; do
+            [[ "$key" == ID || "$key" == ID_LIKE ]] || continue
+            if [[ "$value" == \"*\" || "$value" == \'*\' ]]; then value=${value:1:${#value}-2}; fi
+            [[ "$value" =~ ^[a-zA-Z0-9._\ -]*$ ]] || continue
+            if [[ "$key" == ID ]]; then id=$value; else like=$value; fi
+        done <"$release"
+    fi
+    read -r -a names <<<"$id $like"
+    for name in "${names[@]}"; do
+        case "$name" in
+            arch|manjaro) echo arch; return ;;
+            fedora) echo fedora; return ;;
+            rhel|centos|rocky|almalinux) echo rhel; return ;;
+            opensuse|opensuse-leap|opensuse-tumbleweed|suse) echo suse; return ;;
+            debian|ubuntu) echo debian; return ;;
+        esac
+    done
+    return 0
+}
 
-values = {}
-try:
-    with open(sys.argv[1], encoding="utf-8") as stream:
-        for line in stream:
-            key, sep, value = line.strip().partition("=")
-            if sep and key in ("ID", "ID_LIKE"):
-                try:
-                    values[key] = " ".join(shlex.split(value))
-                except ValueError:
-                    pass
-except OSError:
-    pass
-# RHEL rebuilds list "rhel" before "fedora" in ID_LIKE, so they map to "rhel":
-# their repositories lack yt-dlp and ffmpeg (needs EPEL + RPM Fusion).
-families = {"arch": "arch", "manjaro": "arch", "fedora": "fedora",
-            "rhel": "rhel", "centos": "rhel", "rocky": "rhel", "almalinux": "rhel",
-            "opensuse": "suse",
-            "opensuse-leap": "suse", "opensuse-tumbleweed": "suse", "suse": "suse",
-            "debian": "debian", "ubuntu": "debian"}
-for name in (values.get("ID", "") + " " + values.get("ID_LIKE", "")).split():
-    if name in families:
-        print(families[name])
-        break
-PY
+plan_packages() {
+    local family=$1 privilege=()
+    shift
+    package_command=(); package_prepare=(); confirmed_flags=(); package_manager=""
+    (($#)) || return 0
+    if [[ "${YTDLP_SETUP_TEST_EUID:-$EUID}" != 0 ]]; then privilege=(sudo); fi
+    case "$family" in
+        arch)
+            package_manager=pacman
+            package_command=("${privilege[@]}" pacman -S --needed "$@")
+            confirmed_flags=(--noconfirm) ;;
+        fedora|rhel)
+            package_manager=dnf
+            package_command=("${privilege[@]}" dnf install -y "$@") ;;
+        suse)
+            package_manager=zypper
+            package_command=("${privilege[@]}" zypper install -y "$@") ;;
+        debian)
+            package_manager=apt-get
+            package_prepare=("${privilege[@]}" apt-get update)
+            package_command=("${privilege[@]}" apt-get install -y "$@") ;;
+        *) return 1 ;;
+    esac
+}
+
+run_package_plan() {
+    ((${#package_command[@]})) || return 0
+    if ! command -v "$package_manager" >/dev/null 2>&1; then
+        printf '→ Package manager %s is missing; ask your administrator to install the listed packages.\n' "$package_manager" >&2
+        return 1
+    fi
+    if [[ "${package_command[0]}" == sudo ]] && ! command -v sudo >/dev/null 2>&1; then
+        echo '→ sudo is missing; ask your administrator to run the package-manager commands. Setup cannot grant itself privileges.' >&2
+        return 1
+    fi
+    if ((${#package_prepare[@]})) && ! run_with_terminal_input "${package_prepare[@]}"; then
+        printf '→ %s failed; trying the install anyway.\n' "${package_prepare[*]}" >&2
+    fi
+    run_with_terminal_input "${package_command[@]}" "${confirmed_flags[@]}"
+}
+
+package_available() {
+    # Use existing metadata only: planning must not refresh repositories or add them.
+    case "$1" in
+        arch) pacman -Si -- "$2" >/dev/null 2>&1 ;;
+        fedora|rhel) dnf --cacheonly -q list --available "$2" >/dev/null 2>&1 ;;
+        suse)
+            # zypper can exit successfully for a missing package; inspect exact XML results.
+            zypper --xmlout --no-refresh --non-interactive search --match-exact --type package "$2" 2>/dev/null |
+                python3 -c 'import sys, xml.etree.ElementTree as ET; sys.exit(not any(item.get("name") == sys.argv[1] for item in ET.parse(sys.stdin).iter("solvable")))' "$2" 2>/dev/null ;;
+        debian) [[ -n "$(apt-cache show -- "$2" 2>/dev/null)" ]] ;;
+        *) return 1 ;;
+    esac
+}
+
+has_downloader() { command -v curl >/dev/null 2>&1 || command -v wget >/dev/null 2>&1; }
+
+prerequisite_packages() {
+    local family=$1 tool
+    if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1; then
+        if [[ "$family" == arch ]]; then echo python; else echo python3; fi
+    fi
+    for tool in cat mkdir install rm rmdir mktemp uname; do
+        if ! command -v "$tool" >/dev/null 2>&1; then echo coreutils; break; fi
+    done
+    if [[ -z "$host_file" ]] && ! has_downloader; then echo curl; fi
+}
+
+check_prerequisites() {
+    local family package packages=() remaining
+    family=$(distro_family)
+    while IFS= read -r package; do packages+=("$package"); done < <(prerequisite_packages "$family")
+    if ((${#packages[@]} == 0)); then echo '✓ Python 3.8+ and setup prerequisites found.'; return; fi
+    printf '→ Missing or unsupported setup prerequisites: %s (Python must be 3.8+).\n' "${packages[*]}"
+    plan_packages "$family" "${packages[@]}" || fail 'Unknown distribution. Install Python 3.8+ (python3), coreutils and curl or wget with your package manager, then rerun setup.'
+    show_dependency_plan
+    if "$dry_run"; then return; fi
+    if "$no_deps"; then fail 'Required setup prerequisites are missing; --no-deps forbids installing them. Run the plan above manually, then rerun setup.'; fi
+    consent || fail 'Required setup prerequisites were not installed; nothing was registered.'
+    run_package_plan || fail 'Required setup prerequisite installation failed; nothing was registered.'
+    remaining=$(prerequisite_packages "$family")
+    [[ -z "$remaining" ]] || fail "Setup prerequisites are still missing or unsupported: $remaining. Python 3.8+ must run as python3; nothing was registered."
+    echo '✓ Python 3.8+ and setup prerequisites found.'
 }
 
 show_dependency_plan() {
@@ -287,56 +370,42 @@ DENO
 
 check_dependencies() {
     local missing_ytdlp=false missing_ffmpeg=false missing_js=false family arch
-    local failed=false privilege=() packages=()
+    local failed=false packages=()
     if ! command -v yt-dlp >/dev/null 2>&1 && [[ ! -x "$HOME/.local/bin/yt-dlp" ]]; then missing_ytdlp=true; fi
-    if ! command -v ffmpeg >/dev/null 2>&1; then missing_ffmpeg=true; fi
+    if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then missing_ffmpeg=true; fi
     if ! has_js_runtime; then missing_js=true; fi
-    if ! "$missing_ytdlp" && ! "$missing_ffmpeg" && ! "$missing_js"; then
-        echo '✓ yt-dlp and ffmpeg found; JavaScript runtime found.'
-        return
-    fi
     if "$missing_ytdlp"; then echo '→ yt-dlp is missing.'; fi
-    if "$missing_ffmpeg"; then echo '→ ffmpeg is missing.'; fi
+    if "$missing_ffmpeg"; then echo '→ ffmpeg or ffprobe is missing (both come from the ffmpeg package).'; fi
     if "$missing_js"; then echo '→ JavaScript runtime is missing (Deno, or Node 22 or newer).'; fi
-    # Test-only override lets unprivileged tests exercise the root command shape.
-    if [[ "${YTDLP_SETUP_TEST_EUID:-$EUID}" != 0 ]]; then privilege=(sudo); fi
     family=$(distro_family)
     case "$family" in
         arch)
             if "$missing_ytdlp"; then packages+=(yt-dlp); fi
             if "$missing_ffmpeg"; then packages+=(ffmpeg); fi
             if "$missing_js"; then packages+=(deno); fi
-            package_command=("${privilege[@]}" pacman -S --needed "${packages[@]}")
-            # Only add --noconfirm after consent; the displayed plan stays interactive.
-            confirmed_flags=(--noconfirm) ;;
+            ;;
         fedora|suse)
             if "$missing_ytdlp"; then packages+=(yt-dlp); fi
             if "$missing_ffmpeg"; then
                 if [[ "$family" == fedora ]]; then packages+=(ffmpeg-free); else packages+=(ffmpeg); fi
             fi
-            if ((${#packages[@]})); then
-                if [[ "$family" == fedora ]]; then
-                    package_command=("${privilege[@]}" dnf install -y "${packages[@]}")
-                else
-                    package_command=("${privilege[@]}" zypper install -y "${packages[@]}")
-                fi
-            fi ;;
+            ;;
         debian)
-            if "$missing_ffmpeg"; then
-                # Fresh or stale package lists make `apt-get install` fail with
-                # "Unable to locate package" (seen in a clean Debian 13 container).
-                package_prepare=("${privilege[@]}" apt-get update)
-                package_command=("${privilege[@]}" apt-get install -y ffmpeg)
-            fi
+            if "$missing_ffmpeg"; then packages+=(ffmpeg); fi
             install_ytdlp="$missing_ytdlp" ;;
         rhel)
             install_ytdlp="$missing_ytdlp"
             if "$missing_ffmpeg"; then
-                echo "→ ffmpeg isn't in RHEL/Rocky/Alma's repositories. Enable EPEL and RPM Fusion"
-                echo '  (https://rpmfusion.org/Configuration), run: sudo dnf install ffmpeg, then run setup again.'
+                if package_available "$family" ffmpeg; then packages+=(ffmpeg)
+                elif package_available "$family" ffmpeg-free; then packages+=(ffmpeg-free)
+                else
+                    echo '→ No ffmpeg package found in enabled RHEL/Rocky/Alma repositories. Enable EPEL/RPM Fusion yourself if needed, then rerun setup.'
+                fi
             fi ;;
         *)
-            echo '→ Unknown distribution. Install yt-dlp and ffmpeg with your package manager; then run setup again.' ;;
+            if "$missing_ytdlp" || "$missing_ffmpeg"; then
+                echo '→ Unknown distribution. Install yt-dlp and ffmpeg with your package manager; then run setup again.'
+            fi ;;
     esac
     if [[ "$family" != arch ]]; then install_deno="$missing_js"; fi
     if "$install_ytdlp" || "$install_deno"; then
@@ -349,19 +418,35 @@ check_dependencies() {
                 install_ytdlp=false; install_deno=false ;;
         esac
     fi
+    if ! command -v zenity >/dev/null 2>&1 && ! command -v kdialog >/dev/null 2>&1 && ! command -v yad >/dev/null 2>&1; then
+        echo '→ Optional folder picker is missing; offer zenity for Browse….'
+        packages+=(zenity)
+    fi
+    if ! command -v xdg-open >/dev/null 2>&1; then
+        echo '→ Optional xdg-open is missing; offer xdg-utils for Open folder.'
+        packages+=(xdg-utils)
+    fi
+    if ! command -v xdg-user-dir >/dev/null 2>&1; then
+        echo '→ Optional xdg-user-dir is missing; offer xdg-user-dirs for the configured Downloads folder.'
+        packages+=(xdg-user-dirs)
+    fi
+    if "$sandboxed_browser_found" && ! has_native_messaging_proxy && package_available "$family" xdg-native-messaging-proxy; then
+        packages+=(xdg-native-messaging-proxy)
+    fi
+    if { "$install_ytdlp" || "$install_deno"; } && ! has_downloader; then packages+=(curl); fi
+    if ! plan_packages "$family" "${packages[@]}"; then
+        printf '→ Install these packages manually: %s (unknown distribution).\n' "${packages[*]}"
+    fi
+    if ((${#package_command[@]} == 0)) && ! "$install_ytdlp" && ! "$install_deno"; then
+        if ! "$missing_ytdlp" && ! "$missing_ffmpeg" && ! "$missing_js" && ((${#packages[@]} == 0)); then
+            echo '✓ yt-dlp and ffmpeg found; JavaScript runtime found; desktop tools found.'
+        fi
+        return
+    fi
     show_dependency_plan
     if "$dry_run"; then return; fi
-    if ((${#package_command[@]} == 0)) && ! "$install_ytdlp" && ! "$install_deno"; then return; fi
     if ! consent; then echo '→ Skipping dependency installation.'; return; fi
-    if ((${#package_prepare[@]})) && ! run_with_terminal_input "${package_prepare[@]}"; then
-        # Not fatal by itself: existing lists may still be good enough for the install.
-        printf '→ %s failed; trying the install anyway.\n' "${package_prepare[*]}" >&2
-    fi
-    if ((${#package_command[@]})); then
-        if ! run_with_terminal_input "${package_command[@]}" "${confirmed_flags[@]}"; then
-            dependency_failed "${package_command[*]}"; failed=true
-        fi
-    fi
+    if ! run_package_plan; then dependency_failed "${package_command[*]}"; failed=true; fi
     if "$install_ytdlp"; then
         if ! install_standalone_ytdlp; then
             dependency_failed 'yt-dlp download/checksum/install/--version probe'; failed=true
@@ -458,8 +543,7 @@ parse_args() {
 main() {
     parse_args "$@"
     if "$uninstall"; then remove_host; exit 0; fi
-    command -v python3 >/dev/null 2>&1 || fail 'Python 3 is required. Install python3 with your distribution package manager, then run setup again.'
-    echo '✓ Python 3 found.'
+    check_prerequisites
     check_sandboxed_browsers
     if ! "$no_deps"; then check_dependencies; fi
     obtain_host

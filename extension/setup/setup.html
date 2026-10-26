@@ -28,11 +28,7 @@
 
         <p class="setup-warning" id="ready-warning" hidden>
           <span class="warning-icon" aria-hidden="true">⚠</span>
-          <span>
-            <strong>No JavaScript runtime found</strong> (Deno, or Node 22 or newer). Downloads work, but without
-            one yt-dlp can miss some YouTube formats. Run the command below to install Deno, then press
-            <strong>Check again</strong>.
-          </span>
+          <span id="warning-text"></span>
         </p>
 
         <div class="command-block" id="command-block" hidden>
@@ -43,9 +39,10 @@
           </div>
           <p class="copy-status" id="copy-status" role="status" aria-live="polite"></p>
           <p class="hint" id="command-hint">
-            It downloads the helper from this release's GitHub page, checks it, and asks before it installs
-            yt-dlp, ffmpeg, or Deno. Your package manager may ask for your password.
+            It downloads the helper from this release's GitHub page, verifies its checksum, and offers to
+            install missing dependencies. Your package manager may ask for your password.
           </p>
+          <p class="hint command-alternatives" id="command-alternatives"></p>
           <p class="links">
             <a id="script-link" target="_blank" rel="noopener noreferrer">View the script first</a>
             <a id="manual-link" target="_blank" rel="noopener noreferrer">Manual install</a>

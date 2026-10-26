@@ -28,8 +28,13 @@ Firefox or Zen. (It isn't on addons.mozilla.org yet; until then see
 into a terminal:
 
 ```sh
-curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.0/setup.sh | bash
+curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.1/setup.sh | bash
 ```
+
+The setup page lists all twelve checks and distinguishes required failures from optional or
+installer-only warnings. It keeps install guidance visible when anything needs attention. If curl
+is missing, it can use wget; if neither is installed, save the script through your browser and run
+`bash setup.sh` in that folder. A saved script can offer to install a downloader.
 
 The command (the setup page shows the one matching your installed version) does two things:
 
@@ -37,10 +42,13 @@ The command (the setup page shows the one matching your installed version) does 
    extensions start programs themselves). It's downloaded from the same GitHub release and checked
    against a SHA-256 checksum baked into the script. It goes to `~/.local/share/ytdlp-downloader/`
    and is registered in `~/.mozilla/native-messaging-hosts/`.
-2. **Offers to install what's missing**: yt-dlp, ffmpeg, and a JavaScript runtime, which yt-dlp
-   uses to solve YouTube's challenges. Deno is the default (yt-dlp's recommendation); if you already
-   have Node 22 or newer, that's used instead and nothing extra is installed. It
-   shows the plan and asks first; `sudo` asks for your password when needed.
+2. **Offers to install what's missing**: Python 3.8+, setup utilities, yt-dlp, ffmpeg/ffprobe,
+   and a JavaScript runtime. Python is checked and installed first when needed, because the helper
+   and checksum verification depend on it. Deno is the default runtime; an existing Node 22+ also
+   satisfies the check. Setup shows each plan and asks first; `sudo` asks for your password when
+   needed. It also offers optional desktop tools: `zenity` for Browse when no supported picker is
+   installed, `xdg-utils` for Open folder, and `xdg-user-dirs` for your configured Downloads folder.
+   An existing zenity, kdialog or yad picker is kept.
 
    | Distro | yt-dlp | ffmpeg | Deno |
    |---|---|---|---|
@@ -48,27 +56,40 @@ The command (the setup page shows the one matching your installed version) does 
    | Fedora | `dnf` | `dnf` (`ffmpeg-free`) | official build in `~/.local/bin` |
    | openSUSE | `zypper` | `zypper` | official build in `~/.local/bin` |
    | Debian, Ubuntu | official standalone build in `~/.local/bin` (apt's is usually too old for YouTube) | `apt-get` (after `apt-get update`) | official build in `~/.local/bin` |
-   | RHEL, Rocky, Alma | official standalone build in `~/.local/bin` | instructions (needs EPEL + RPM Fusion) | official build in `~/.local/bin` |
+   | RHEL, Rocky, Alma | official standalone build in `~/.local/bin` | enabled-repository package if available; otherwise EPEL/RPM Fusion instructions | official build in `~/.local/bin` |
    | others | instructions only | instructions only | official build in `~/.local/bin` |
 
    Downloaded builds are checked against the SHA-256 list their project publishes and test-run
-   before setup reports success. If you say no or something fails, the helper is installed anyway
-   and the setup page shows what's still missing.
+   before setup reports success. Missing Python, coreutils, or a required downloader must be
+   resolved before the helper can be installed. For the other tools, declining or failing an
+   installation does not block helper registration. The setup page shows missing desktop tools as
+   optional warnings; terminal output explains package-installation failures.
 
-The setup page notices the helper by itself and switches to **Ready**. No browser restart needed. You can open it again any time: extension settings → **Helper program** → **Setup page**.
+   Sandboxed browsers are checked separately. Setup offers `xdg-native-messaging-proxy` only when
+   it is listed in existing repository metadata. It never adds repositories or installs AUR tools.
+   Bash, a working package manager, and administrative access are required for package installs;
+   missing sudo produces instructions for an administrator rather than an attempted privilege change.
 
-[Read the script first](https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.0/setup.sh)
+The setup page notices helper 1.2.0 by itself and switches to **Ready** when required checks pass.
+Optional warnings do not block downloads, but keep their install guidance and automatic rechecks
+visible. An old helper or incomplete required report asks for an update instead of claiming Ready.
+No browser restart needed. You can open it again any time: extension settings → **Helper program** → **Setup page**.
+
+[Read the script first](https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.1/setup.sh)
 if you like (that's the exact file the command runs). Options (add them after `bash -s --`):
-`--no-deps` skips step 2, `--yes` accepts step 2 without asking, `--dry-run` shows what would
-happen, and `--uninstall` removes the helper.
+`--no-deps` skips all dependency installations but still checks required setup prerequisites;
+`--yes` accepts the displayed dependency plans without asking; `--dry-run` only shows what would
+happen; `--uninstall` removes the helper without requiring Python.
 
 ### Requirements
 
 - Linux, with a Firefox-based browser (Firefox 140+, Zen, LibreWolf, …), preferably installed
   natively (see [Browsers](#browsers))
-- Python 3.8+ for the helper (preinstalled on practically every distro)
-- yt-dlp, ffmpeg, and a JavaScript runtime (Deno, or Node 22+); the setup command can install them
-- Optional: `zenity`, `kdialog`, or `yad` for the **Browse…** folder picker
+- Python 3.8+ for the helper; setup offers the distro's Python package and verifies it meets this minimum
+- yt-dlp, ffmpeg/ffprobe, and a JavaScript runtime (Deno, or Node 22+); setup can install them
+- Optional desktop tools, offered by setup when missing: `zenity` for **Browse…**, `xdg-utils` for
+  **Open folder**, and `xdg-user-dirs` for Downloads-folder detection. Existing `kdialog` or `yad`
+  also satisfy the picker requirement. Without xdg-user-dirs the helper falls back to `~/Downloads`.
 
 ### Browsers
 
@@ -169,7 +190,7 @@ Notes:
 ## Uninstall
 
 ```sh
-curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.0/setup.sh | bash -s -- --uninstall
+curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.1/setup.sh | bash -s -- --uninstall
 ```
 
 or `./native-host/uninstall.sh` from a checkout (which also removes the `user.js` line that

@@ -1,7 +1,7 @@
 "use strict";
 
 const { CHOICES, loadSettings, saveSettings, validateSaveDir } = globalThis.YtdlpSettings;
-const { MIN_HOST_VERSION, deriveSetupState, describeToolProblems, isHostVersionSupported } = globalThis.YtdlpSetup;
+const { MIN_HOST_VERSION, deriveSetupState, describeToolProblems, joinNames } = globalThis.YtdlpSetup;
 
 const SAVED_FEEDBACK_MS = 2000;
 const SELECT_KEYS = ["videoResolution", "videoFormat", "audioQuality", "audioFormat"];
@@ -157,30 +157,38 @@ const retryButton = document.getElementById("host-retry");
  * @returns {string}
  */
 function toolRemedy(view) {
-  // setup.sh skips tools that exist, so a broken yt-dlp must be updated or removed first.
-  if (view.brokenTools.length > 0) {
-    return view.missingTools.length > 0
-      ? "installs a working yt-dlp after you update or remove the broken one, and offers to install the rest"
-      : "installs a working yt-dlp after you update or remove the broken one";
+  const guidance = ["The setup page offers installation of missing dependencies."];
+  if (view.unsupportedTools.length) guidance.push("Install Python 3.8 or newer and reinstall the helper.");
+  if (view.brokenTools.includes("yt-dlp")) {
+    guidance.push("Update or remove the broken yt-dlp first; setup does not replace an existing executable.");
   }
-  return `offers to install ${view.missingTools.length > 1 ? "them" : "it"}`;
+  return guidance.join(" ");
 }
 
 /**
- * Shows the "Open setup" hint for setup states the setup command fixes, or hides it.
+ * Shows setup guidance for required failures, warnings and unconfirmed reports.
  * @param {import("../shared/setup-info.js").SetupView} view
  */
 function renderSetupHint(view) {
-  const texts = {
-    missing: "The setup page shows the one command that installs or repairs the helper.",
-    outdated: `Update helper: version ${view.hostVersion ?? "unknown"} is older than this extension needs (${MIN_HOST_VERSION} or newer). The setup page shows the command that updates it.`,
-    tools: `Not ready yet: ${describeToolProblems(view)}. Running the setup command again ${toolRemedy(view)}.`,
-    ready: view.warnings.includes("jsRuntime")
-      ? "No JavaScript runtime found (Deno, or Node 22 or newer). Downloads work, but yt-dlp can miss some YouTube formats without one. Running the setup command again installs Deno."
-      : undefined,
-  };
-  const text = texts[view.state];
-  hostInstallText.textContent = text ?? "";
+  let text = "";
+  if (view.state === "missing") {
+    text = "The setup page shows the command that installs or repairs the helper.";
+  } else if (view.state === "outdated") {
+    text = view.updateReason === "version"
+      ? `Update helper: version ${view.hostVersion} needs to be ${MIN_HOST_VERSION} or newer. Open setup for the update command.`
+      : "The helper's version or required diagnostics are not confirmed. Open setup to update or reinstall it.";
+    const problems = describeToolProblems(view);
+    if (problems) text += ` ${problems}. ${toolRemedy(view)}`;
+  } else if (view.state === "tools") {
+    text = `Not ready yet: ${describeToolProblems(view)}. ${toolRemedy(view)}`;
+  } else if (view.state === "ready" && view.needsAttention) {
+    const names = view.checklist.filter((check) => view.warnings.includes(check.key)).map((check) => check.label);
+    const messages = [];
+    if (names.length) messages.push(`Optional or setup tools unavailable: ${joinNames(names)}. Setup offers to install them.`);
+    if (view.unknownChecks.length) messages.push("Some dependency checks are not confirmed; update or reinstall the helper.");
+    text = `${messages.join(" ")} Downloads are not blocked. Open setup for the full checklist and guidance.`;
+  }
+  hostInstallText.textContent = text;
   hostInstallHint.hidden = !text;
 }
 
@@ -200,11 +208,11 @@ function setDetail(id, text, problem = false) {
 
 function updateBrowseAvailability() {
   const pickerMissing = hostPong !== null && !hostPong.picker;
-  const title = pickerMissing
-    ? "No folder dialog found. Install zenity, kdialog, or yad."
-    : hostPong === null
-      ? "The native host is not reachable."
-      : "";
+  const title = hostPong === null
+    ? "The native host is not reachable."
+    : hostPong.picker === null
+      ? "No folder dialog found. Open setup to install zenity, kdialog, or yad."
+      : pickerMissing ? "The helper has not reported a folder picker. Open setup to check its diagnostics." : "";
   for (const button of browseButtons) {
     button.disabled = hostPong === null || pickerMissing;
     button.title = title;
@@ -217,47 +225,30 @@ function updateBrowseAvailability() {
  * @param {object} pong host `pong` message
  */
 function renderHostOk(pong) {
-  const ytDlp = pong.ytDlp ?? {};
-  const ffmpeg = pong.ffmpeg ?? {};
-  const supported = isHostVersionSupported(pong.hostVersion);
   const view = deriveSetupState({ ok: true, pong });
-  const ytDlpBroken = view.brokenTools.includes("yt-dlp");
-  const runtimeCheck = view.checklist.find((check) => check.key === "jsRuntime");
   const problems = [];
-  if (!supported) problems.push(`the helper needs an update to ${MIN_HOST_VERSION} or newer`);
-  if (!ytDlp.found) problems.push("yt-dlp not found");
-  if (ytDlpBroken) problems.push("yt-dlp doesn't run");
-  if (!ffmpeg.found) problems.push("ffmpeg missing (needed for video merging and all audio downloads)");
-  if (runtimeCheck.status === "warn") problems.push("no JavaScript runtime (recommended for YouTube)");
+  if (view.state === "outdated") {
+    problems.push(view.updateReason === "version"
+      ? `the helper needs an update to ${MIN_HOST_VERSION} or newer`
+      : "helper compatibility or required diagnostics are not confirmed");
+  }
+  const requiredProblems = describeToolProblems(view);
+  if (requiredProblems) problems.push(requiredProblems);
+  const warnings = view.checklist.filter((check) => view.warnings.includes(check.key)).map((check) => check.label);
+  if (warnings.length) problems.push(`optional/setup tools unavailable: ${joinNames(warnings)}`);
+  if (view.unknownChecks.length) problems.push("some dependency checks are pending");
 
-  hostSummary.dataset.state = problems.length > 0 ? "warn" : "ok";
-  hostSummaryText.textContent = problems.length > 0 ? `Connected, but ${problems.join("; ")}.` : "Connected";
+  hostSummary.dataset.state = view.needsAttention ? "warn" : "ok";
+  hostSummaryText.textContent = problems.length ? `Connected, but ${problems.join("; ")}.` : "Connected";
 
-  setDetail(
-    "host-version",
-    supported ? String(pong.hostVersion) : `${pong.hostVersion ?? "unknown"} (needs ${MIN_HOST_VERSION} or newer)`,
-    !supported,
-  );
-  setDetail(
-    "host-ytdlp",
-    !ytDlp.found
-      ? "Not found. Install yt-dlp."
-      : ytDlpBroken
-        ? `Installed but doesn't run — ${ytDlp.path ?? ""}`
-        : `${ytDlp.version} — ${ytDlp.path ?? ""}`,
-    !ytDlp.found || ytDlpBroken,
-  );
-  setDetail("host-ffmpeg", ffmpeg.found ? `Found — ${ffmpeg.path ?? ""}` : "Missing. Install ffmpeg.", !ffmpeg.found);
-  setDetail(
-    "host-jsruntime",
-    runtimeCheck.status === "warn" ? "None found (Deno, or Node 22+). Recommended for YouTube: the setup command installs Deno." : runtimeCheck.detail,
-    runtimeCheck.status === "warn" && "warn",
-  );
-  setDetail(
-    "host-picker",
-    pong.picker ? String(pong.picker) : "None found. Install zenity, kdialog, or yad for Browse…",
-    !pong.picker,
-  );
+  for (const [key, id] of [["helper", "host-version"], ["ytdlp", "host-ytdlp"],
+    ["ffmpeg", "host-ffmpeg"], ["jsRuntime", "host-jsruntime"], ["picker", "host-picker"]]) {
+    const check = view.checklist.find((item) => item.key === key);
+    const tool = key === "ytdlp" ? pong.ytDlp : key === "ffmpeg" ? pong.ffmpeg : null;
+    const path = typeof tool?.path === "string" && tool.path.trim() ? tool.path : null;
+    const detail = path ? `${check.detail} · ${path}` : check.detail;
+    setDetail(id, detail, check.status === "bad" ? true : check.status === "warn" ? "warn" : false);
+  }
   setDetail("host-default-dir", String(pong.defaultSaveDir ?? "unknown"));
   hostDetails.hidden = false;
   renderSetupHint(view);

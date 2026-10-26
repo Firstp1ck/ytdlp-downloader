@@ -30,9 +30,9 @@
 
 .checklist li {
   display: grid;
-  grid-template-columns: 1.5em max-content 1fr;
+  grid-template-columns: 1.5em minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: 4px 10px;
+  gap: 3px 10px;
 }
 
 .check-icon {
@@ -74,7 +74,19 @@
   font-weight: 600;
 }
 
+.check-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.check-requirement {
+  grid-column: 2 / -1;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .check-detail {
+  grid-column: 2 / -1;
   color: var(--muted);
   font-size: 13px;
   overflow-wrap: anywhere;
@@ -124,6 +136,10 @@
   color: var(--danger);
 }
 
+.command-alternatives {
+  overflow-wrap: anywhere;
+}
+
 .links {
   display: flex;
   flex-wrap: wrap;
@@ -169,10 +185,6 @@ a:hover {
   border-top: 1px solid var(--border);
 }
 
-.card[data-state="ready"] .poll-row {
-  justify-content: flex-end;
-}
-
 .poll-status {
   display: flex;
   align-items: center;
@@ -204,4 +216,36 @@ a:hover {
 
 .platform-note {
   padding: 0 4px;
+}
+
+@media (max-width: 480px) {
+  .page {
+    padding: 18px 12px 32px;
+  }
+
+  .card {
+    padding: 14px 12px;
+    min-width: 0;
+  }
+
+  .checklist {
+    padding: 10px;
+  }
+
+  .checklist li {
+    grid-template-columns: 1.2em minmax(0, 1fr);
+  }
+
+  .check-status {
+    grid-column: 2;
+  }
+
+  .command-row,
+  .poll-row {
+    flex-wrap: wrap;
+  }
+
+  .command {
+    flex-basis: 100%;
+  }
 }

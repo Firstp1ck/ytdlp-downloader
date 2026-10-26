@@ -21,7 +21,7 @@ import uuid
 from urllib.parse import urlsplit
 
 
-HOST_VERSION = "1.1.0"
+HOST_VERSION = "1.2.0"
 MAX_CONCURRENT = 2
 MAX_MESSAGE_BYTES = 1024 * 1024
 # Firefox rejects host messages over 1 MB; a long playlist's path list could exceed it.
@@ -342,13 +342,13 @@ def find_js_runtime():
     return None
 
 
-def default_save_dir():
+def default_save_dir(timeout=3):
     """Resolve the XDG download directory, falling back to ~/Downloads."""
     binary = shutil.which("xdg-user-dir")
     if binary:
         try:
             result = subprocess.run([binary, "DOWNLOAD"], capture_output=True,
-                                    text=True, timeout=3, check=False)
+                                    text=True, timeout=timeout, check=False)
             if result.returncode == 0 and result.stdout.strip():
                 return normalize_path(result.stdout.strip())
         except (OSError, subprocess.TimeoutExpired, HostError):
@@ -359,6 +359,20 @@ def default_save_dir():
 def find_picker():
     """Return the first installed supported native folder picker."""
     return next((name for name in ("zenity", "kdialog", "yad") if shutil.which(name)), None)
+
+
+def find_native_messaging_proxy():
+    """Find the proxy even when the browser supplies a reduced PATH."""
+    binary = shutil.which("xdg-native-messaging-proxy")
+    if binary:
+        return binary
+    for location in ("/usr/libexec/xdg-native-messaging-proxy",
+                     "/usr/lib/xdg-native-messaging-proxy",
+                     "/usr/lib/xdg-native-messaging-proxy/xdg-native-messaging-proxy"):
+        candidate = Path(location)
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return location
+    return None
 
 
 def terminate_group(process):
@@ -405,6 +419,7 @@ class NativeHost:
         self.threads = set()
         self.auxiliary = set()
         self.stopping = False
+        self._user_dirs_available = shutil.which("xdg-user-dir") is not None
         self.default_dir = default_save_dir()
 
     def send(self, message):
@@ -453,11 +468,43 @@ class NativeHost:
             except (OSError, subprocess.TimeoutExpired):
                 pass
         ffmpeg = shutil.which("ffmpeg")
+        ffprobe = shutil.which("ffprobe")
+        downloader_name, downloader_path = None, None
+        for name in ("curl", "wget"):
+            path = shutil.which(name)
+            if path:
+                downloader_name, downloader_path = name, path
+                break
+        missing_coreutils = [name for name in ("cat", "mkdir", "install", "rm", "rmdir", "mktemp", "uname")
+                             if not shutil.which(name)]
+        opener = shutil.which("xdg-open")
+        user_dirs = shutil.which("xdg-user-dir")
+        with self.lock:
+            if bool(user_dirs) != self._user_dirs_available:
+                # Reserve room in the 10 s ping budget for yt-dlp and Node probes.
+                self.default_dir = default_save_dir(timeout=1)
+                self._user_dirs_available = bool(user_dirs)
+            default_dir = self.default_dir
+        proxy = find_native_messaging_proxy()
+        # A host without these markers may still serve a sandboxed browser.
+        sandboxed = any(os.environ.get(name) for name in ("FLATPAK_ID", "SNAP", "SNAP_NAME"))
+        proxy_applicable = True if sandboxed else None
         self.send({"type": "pong", "hostVersion": HOST_VERSION,
                    "ytDlp": {"found": binary is not None, "path": binary, "version": version},
                    "ffmpeg": {"found": ffmpeg is not None, "path": ffmpeg},
+                   "python": {"found": True, "path": sys.executable,
+                              "version": ".".join(str(part) for part in sys.version_info[:3]),
+                              "supported": sys.version_info >= (3, 8)},
+                   "ffprobe": {"found": ffprobe is not None, "path": ffprobe},
+                   "downloader": {"found": downloader_path is not None,
+                                  "name": downloader_name, "path": downloader_path},
+                   "coreutils": {"found": not missing_coreutils, "missing": missing_coreutils},
+                   "opener": {"found": opener is not None, "path": opener},
+                   "userDirs": {"found": user_dirs is not None, "path": user_dirs},
+                   "nativeMessagingProxy": {"found": proxy is not None, "path": proxy,
+                                            "applicable": proxy_applicable},
                    "jsRuntime": find_js_runtime(),
-                   "defaultSaveDir": self.default_dir, "picker": find_picker()})
+                   "defaultSaveDir": default_dir, "picker": find_picker()})
 
     def submit(self, message):
         """Validate and accept a job, queueing once both slots are occupied."""
@@ -470,8 +517,10 @@ class NativeHost:
         if not binary:
             raise HostError("ytdlp_missing", "yt-dlp was not found. Install it and reconnect.")
         # Every mapping needs ffmpeg: bv*+ba merges, and -x probes with ffprobe even when copying.
-        if not shutil.which("ffmpeg"):
-            raise HostError("ffmpeg_missing", "ffmpeg is required for video merging and audio downloads.")
+        for tool in ("ffmpeg", "ffprobe"):
+            if not shutil.which(tool):
+                raise HostError("ffmpeg_missing", tool + " is required for video merging and audio downloads. "
+                                "Install the ffmpeg package and reconnect.")
         with self.lock:
             if job_id in self.jobs:
                 raise HostError("bad_request", "This download id is already in use.")
@@ -493,6 +542,7 @@ class NativeHost:
         """Run yt-dlp, stream progress, and emit exactly one terminal event."""
         stderr_tail = collections.deque(maxlen=8)
         files = []
+        finished = None
         stderr_thread = None
         try:
             with self.lock:
@@ -539,9 +589,9 @@ class NativeHost:
                         except OSError as exc:
                             self.error(job.id, "internal", "Could not move the download: " + str(exc))
                         else:
-                            self.send({"type": "finished", "id": job.id,
-                                       "files": published[:MAX_REPORTED_FILES],
-                                       "fileCount": len(published)})
+                            finished = {"type": "finished", "id": job.id,
+                                        "files": published[:MAX_REPORTED_FILES],
+                                        "fileCount": len(published)}
                     else:
                         self.error(job.id, "ytdlp_failed", failure_message(list(stderr_tail), returncode))
         except HostError as exc:
@@ -566,6 +616,8 @@ class NativeHost:
             with self.lock:
                 if job.cancelled and not self.stopping:
                     self.send({"type": "cancelled", "id": job.id})
+                elif finished is not None and not self.stopping:
+                    self.send(finished)
                 self.jobs.pop(job.id, None)
                 self.active -= 1
                 self.schedule()
