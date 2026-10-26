@@ -107,6 +107,14 @@ setting below.
 
 ### From a git checkout
 
+Development builds for upcoming 1.3.2 add a managed `ytdlp-setup` launcher with helper 1.3.0.
+After installing that helper, setup can show `"$HOME/.local/bin/ytdlp-setup" 1.3.2` instead of
+inline Python. This is not in published 1.3.1; the 1.3.2 remote installer URL is not available
+until that release is published. For local helper testing without package installs, run
+`bash native-host/setup.sh --host-file native-host/ytdlp_host.py --no-deps` from the checkout.
+This updates helper registration in your user account; development validation uses temporary HOME
+rather than changing the running browser's helper.
+
 ```sh
 git clone https://github.com/Firstp1ck/ytdlp-downloader.git
 cd ytdlp-downloader

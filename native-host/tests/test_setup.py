@@ -127,6 +127,7 @@ class SetupTests(unittest.TestCase):
         self.env.pop("YTDLP_SETUP_BASE_URL", None)
         self.manifest = self.home / ".mozilla/native-messaging-hosts" / MANIFEST
         self.host = self.home / ".local/share/ytdlp-downloader/ytdlp_host.py"
+        self.launcher = self.home / ".local/bin/ytdlp-setup"
         self.release = self.root / "release"
         self.release.mkdir()
         bake_setup(self.release)
@@ -145,7 +146,7 @@ class SetupTests(unittest.TestCase):
     def run_setup(self, *args, expected=0, env=None):
         result = subprocess.run([str(self.bin / "bash"), str(NATIVE_HOST / "setup.sh"), *args],
                                 env=env or self.env, stdin=subprocess.DEVNULL, capture_output=True,
-                                text=True, timeout=10, start_new_session=True)
+                                text=True, timeout=10, start_new_session=True, cwd=self.root)
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return result
 
@@ -176,6 +177,121 @@ class SetupTests(unittest.TestCase):
         })
         self.assertTrue(os.access(self.host, os.X_OK))
         self.assertEqual(self.host.read_bytes(), HOST.read_bytes())
+        self.assertFalse(self.launcher.is_symlink())
+        self.assertTrue(os.access(self.launcher, os.X_OK))
+        self.assertEqual(self.launcher.read_text().splitlines()[:2],
+                         ["#!/bin/sh", "# Managed by yt-dlp Downloader"])
+        self.assertIn(' --setup "$@"', self.launcher.read_text())
+
+    def test_launcher_executes_pinned_interpreter_isolated_with_safe_paths_and_arguments(self):
+        # Both the interpreter and installed host path contain shell metacharacters.
+        self.bin.rename(self.root / "Python's $(touch injected); tools")
+        self.bin = self.root / "Python's $(touch injected); tools"
+        self.home = self.root / "Home's $(touch injected); folder"
+        self.home.mkdir()
+        self.env.update(HOME=str(self.home), PATH=str(self.bin))
+        launcher = self.home / ".local/bin/ytdlp-setup"
+        recorded = self.root / "launcher-args.json"
+        recorder = self.root / "recorder.py"
+        recorder.write_text("import json, sys\nfrom pathlib import Path\n"
+                            f"Path({str(recorded)!r}).write_text(json.dumps([sys.flags.isolated, sys.argv]))\n")
+        self.run_setup("--host-file", str(recorder), "--no-deps")
+        args = ["1.3.2", "--no-deps", "a b", "O'Brien", "$(touch injected)", "; exit 99", ""]
+        # No python3 in PATH: the launcher uses the interpreter chosen at installation.
+        result = subprocess.run([str(launcher), *args], env={**self.env, "PATH": "/nonexistent"},
+                                cwd=self.root, capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        isolated, argv = json.loads(recorded.read_text())
+        self.assertEqual(isolated, 1)
+        self.assertEqual(argv, [str(self.home / ".local/share/ytdlp-downloader/ytdlp_host.py"), "--setup", *args])
+        self.assertFalse((self.root / "injected").exists())
+        self.assertEqual(sorted(path.name for path in self.home.iterdir()), [".local", ".mozilla"])
+
+    def test_unmanaged_collisions_refused_before_prerequisites_dependencies_or_host_writes(self):
+        self.launcher.parent.mkdir(parents=True)
+        target = self.root / "other-file"
+        owned = "#!/bin/sh\n# Managed by yt-dlp Downloader\nexit 99\n"
+        target.write_text(owned)
+        target.chmod(0o755)
+        (self.bin / "python3").unlink()
+        self.os_release.write_text("ID=arch\n")
+        for kind in ("file", "symlink", "dangling-symlink", "directory", "fifo"):
+            with self.subTest(kind=kind):
+                if kind == "file":
+                    self.launcher.write_text("#!/bin/sh\n# Someone else's launcher\n")
+                elif kind == "symlink":
+                    self.launcher.symlink_to(target)
+                elif kind == "dangling-symlink":
+                    self.launcher.symlink_to(self.root / "missing")
+                elif kind == "directory":
+                    self.launcher.mkdir()
+                else:
+                    os.mkfifo(self.launcher)
+                for flags in [("--yes",), ("--dry-run", "--yes")]:
+                    result = self.run_local(*flags, expected=1)
+                    self.assertIn("Refusing to overwrite unmanaged setup launcher", result.stderr)
+                self.assertFalse(self.host.exists())
+                self.assertFalse(self.manifest.parent.exists())
+                self.assertEqual(self.calls(), [])
+                self.assertEqual(target.read_text(), owned)
+                if kind == "directory":
+                    self.launcher.rmdir()
+                else:
+                    self.launcher.unlink()
+
+    def test_owned_launcher_replaced_atomically_and_dry_run_preserves_it(self):
+        self.run_local("--no-deps")
+        self.launcher.write_text("#!/bin/sh\n# Managed by yt-dlp Downloader\nexit 99\n")
+        self.launcher.chmod(0o644)
+        before = self.launcher.read_bytes()
+        inode = self.launcher.stat().st_ino
+        result = self.run_local("--dry-run", "--no-deps")
+        self.assertIn("Would install managed setup launcher", result.stdout)
+        self.assertEqual(self.launcher.read_bytes(), before)
+        self.assertEqual(self.launcher.stat().st_ino, inode)
+        self.run_local("--no-deps")
+        self.assert_installed()
+        self.assertNotEqual(self.launcher.stat().st_ino, inode)
+        self.assertEqual(list(self.launcher.parent.glob(".ytdlp-setup-*")), [])
+
+    def test_python_free_uninstall_only_removes_owned_launcher(self):
+        self.run_local("--no-deps")
+        unrelated = self.launcher.parent / "keep.txt"
+        unrelated.write_text("keep")
+        (self.bin / "python3").unlink()
+        result = self.run_setup("--uninstall", "--dry-run")
+        self.assertIn("Would remove managed setup launcher", result.stdout)
+        self.assertTrue(self.launcher.exists())
+        self.launcher.chmod(0o644)
+        self.run_setup("--uninstall")
+        self.assertFalse(self.launcher.exists())
+        self.assertEqual(unrelated.read_text(), "keep")
+        self.assertFalse(self.host.exists())
+        self.assertFalse(self.manifest.exists())
+
+    def test_uninstall_preserves_unmanaged_launchers_and_symlink_targets_without_python(self):
+        self.launcher.parent.mkdir(parents=True)
+        (self.bin / "python3").unlink()
+        target = self.root / "marked-target"
+        target.write_text("#!/bin/sh\n# Managed by yt-dlp Downloader\nexit 0\n")
+        for kind in ("file", "symlink", "dangling-symlink", "directory"):
+            with self.subTest(kind=kind):
+                if kind == "file":
+                    self.launcher.write_text("unmanaged\n")
+                elif kind == "symlink":
+                    self.launcher.symlink_to(target)
+                elif kind == "dangling-symlink":
+                    self.launcher.symlink_to(self.root / "missing")
+                else:
+                    self.launcher.mkdir()
+                result = self.run_setup("--uninstall")
+                self.assertIn("Preserving unmanaged setup launcher", result.stdout)
+                self.assertTrue(os.path.lexists(self.launcher))
+                self.assertTrue(target.exists())
+                if kind == "directory":
+                    self.launcher.rmdir()
+                else:
+                    self.launcher.unlink()
 
     def test_piped_release_installs_verified_host(self):
         self.use_real_download()
@@ -291,6 +407,27 @@ class SetupTests(unittest.TestCase):
                     os.close(master)
                     os.close(slave)
 
+    def test_cli_loopback_setup_retains_dependency_consent_on_terminal(self):
+        self.os_release.write_text("ID=arch\n")
+        for answer, installs in ((b"n\n", False), (b"\n", True)):
+            with self.subTest(answer=answer), release_server(self.release) as base:
+                self.log.unlink(missing_ok=True)
+                master, slave = pty.openpty()
+                try:
+                    os.write(master, answer)
+                    result = subprocess.run([sys.executable, "-I", str(HOST), "--setup", "1.3.2"],
+                                            env={**self.env, "YTDLP_SETUP_BASE_URL": base,
+                                                 "YTDLP_SETUP_TTY": os.ttyname(slave)},
+                                            stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                            cwd=self.root, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    commands = [call for call in self.calls() if call[0] == "pacman"]
+                    self.assertEqual(bool(commands), installs)
+                    self.assert_installed()
+                finally:
+                    os.close(master)
+                    os.close(slave)
+
     def test_unknown_distro_is_manual_even_with_yes(self):
         result = self.run_local("--yes")
         self.assertIn("Unknown distribution", result.stdout)
@@ -339,6 +476,7 @@ class SetupTests(unittest.TestCase):
             result = self.run_pipeline(base, "--yes", "--dry-run")
         self.assertIn("Would download and verify", result.stdout)
         self.assertIn("Would write manifest", result.stdout)
+        self.assertIn("Would install managed setup launcher", result.stdout)
         self.assertEqual(list(self.home.iterdir()), [])
         self.assertEqual(self.calls(), [])
 
@@ -365,6 +503,7 @@ class SetupTests(unittest.TestCase):
         self.run_setup("--uninstall")
         self.assertFalse(self.manifest.exists())
         self.assertFalse(self.host.parent.exists())
+        self.assertFalse(self.launcher.exists())
 
     def test_missing_python_has_actionable_error(self):
         (self.bin / "python3").unlink()

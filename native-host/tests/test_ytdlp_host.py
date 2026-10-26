@@ -1,5 +1,7 @@
 """Protocol, option mapping, and actual child-process lifecycle tests (stdlib only)."""
 
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
 import io
 import itertools
@@ -7,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import signal
 import struct
 import subprocess
 import sys
@@ -21,6 +24,279 @@ HOST_PATH = Path(__file__).resolve().parents[1] / "ytdlp_host.py"
 SPEC = importlib.util.spec_from_file_location("ytdlp_host", HOST_PATH)
 host = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(host)
+
+
+@contextmanager
+def setup_server(body, status=200, headers=None):
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            requests.append(self.path)
+            self.send_response(status)
+            for key, value in (headers or {}).items():
+                self.send_header(key, value)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", requests
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+class SetupCliTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="ytdlp-cli-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.env = {"HOME": str(self.root), "PATH": str(self.root),
+                    "PYTHONDONTWRITEBYTECODE": "1"}
+        self.stdout, self.stderr = io.StringIO(), io.StringIO()
+        self.environment = mock.patch.dict(os.environ, self.env, clear=True)
+        self.environment.start()
+        self.addCleanup(self.environment.stop)
+
+    def invoke(self, *args):
+        with redirect_stdout(self.stdout), redirect_stderr(self.stderr):
+            return host.setup_cli(list(args))
+
+    def response(self, body=b"# harmless fixture\n", headers=None):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = body
+        response.headers = headers or {}
+        return response
+
+    def test_strict_bounded_versions_and_only_supported_flags_before_io(self):
+        invalid = ["", "1", "1.2", "1.2.3.4", "v1.2.3", "1.2.x", "1.2.3\n",
+                   " 1.2.3", "1.2.3 ", "1.2.3-beta", "1.2.3/other", "1.2.3?x",
+                   "1.2.3;echo bad", "$(touch bad)", "١.2.3", "1" * 10 + ".2.3"]
+        with mock.patch.object(host.urllib.request, "build_opener") as opener, \
+                mock.patch.object(host.subprocess, "run") as run:
+            for version in invalid:
+                with self.subTest(version=version):
+                    self.assertEqual(self.invoke(version, "--dry-run"), 1)
+            for args in [(), ("--dry-run",), ("1.3.2", "--yes"), ("1.3.2", "--help"),
+                         ("1.3.2", "--"), ("1.3.2", "--uninstall"), ("1.3.2", "other"),
+                         ("1.3.2", "--dry-run", "--unknown")]:
+                with self.subTest(args=args):
+                    self.assertEqual(self.invoke(*args), 1)
+            for version in ["0.0.0", "1.3.2", "123.45.678", "999999999.999999999.999999999"]:
+                self.assertEqual(self.invoke(version, "--dry-run", "--no-deps"), 0)
+            opener.assert_not_called()
+            run.assert_not_called()
+        self.assertEqual(list(self.root.iterdir()), [])
+        self.assertNotIn("Traceback", self.stderr.getvalue())
+
+    def test_fixed_pinned_https_complete_bounded_fetch_and_inherited_stdio(self):
+        response = self.response(headers={"Content-Length": "19"})
+        with mock.patch.object(host.urllib.request, "build_opener") as build, \
+                mock.patch.object(host.subprocess, "run", return_value=mock.Mock(returncode=23)) as run:
+            build.return_value.open.return_value = response
+            self.assertEqual(self.invoke("1.3.2", "--no-deps"), 23)
+            build.return_value.open.assert_called_once_with(
+                "https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v1.3.2/setup.sh", timeout=30)
+            response.read.assert_called_once_with(1048577)
+            response.__exit__.assert_called_once()
+            run.assert_called_once_with(["bash", "-s", "--", "--no-deps"],
+                                        input=b"# harmless fixture\n", check=False)
+            self.assertEqual(len(build.call_args.args), 1, "Default verified HTTPS handler is retained")
+
+    def test_fetch_errors_empty_oversized_timeouts_and_incomplete_never_start_bash(self):
+        for case in ("open-error", "http-error", "open-timeout", "read-timeout", "empty", "oversized",
+                     "short", "bad-length", "chunk-error"):
+            with self.subTest(case=case), \
+                    mock.patch.object(host.urllib.request, "build_opener") as build, \
+                    mock.patch.object(host.subprocess, "run") as run:
+                response = self.response()
+                build.return_value.open.return_value = response
+                if case == "open-error":
+                    build.return_value.open.side_effect = host.urllib.error.URLError("fixture failure")
+                elif case == "http-error":
+                    build.return_value.open.side_effect = host.urllib.error.HTTPError("fixture", 404, "missing", {}, None)
+                elif case == "open-timeout":
+                    build.return_value.open.side_effect = TimeoutError("open timeout")
+                elif case == "read-timeout":
+                    response.read.side_effect = TimeoutError("read timeout")
+                elif case == "chunk-error":
+                    response.read.side_effect = host.http.client.IncompleteRead(b"partial")
+                elif case == "empty":
+                    response.read.return_value = b""
+                elif case == "oversized":
+                    response.read.return_value = b"#" * 1048577
+                elif case == "short":
+                    response.headers = {"Content-Length": "999"}
+                elif case == "bad-length":
+                    response.headers = {"Content-Length": "invalid"}
+                self.assertEqual(self.invoke("1.3.2"), 1)
+                run.assert_not_called()
+                if case not in {"open-error", "open-timeout", "http-error"}:
+                    response.__exit__.assert_called_once()
+        self.assertNotIn("Traceback", self.stderr.getvalue())
+
+    def test_exact_size_accepted_only_after_response_closed(self):
+        script = b"#" * 1048576
+        response = self.response(script, {"Content-Length": str(len(script))})
+        def run(*args, **kwargs):
+            response.__exit__.assert_called_once()
+            self.assertEqual(kwargs["input"], script)
+            return mock.Mock(returncode=0)
+        with mock.patch.object(host.urllib.request, "build_opener") as build, \
+                mock.patch.object(host.subprocess, "run", side_effect=run):
+            build.return_value.open.return_value = response
+            self.assertEqual(self.invoke("1.3.2"), 0)
+
+    def test_missing_bash_signal_exit_and_ctrl_c_are_friendly(self):
+        for outcome, expected in [(FileNotFoundError("bash missing"), 1),
+                                  (KeyboardInterrupt(), 130), (mock.Mock(returncode=-15), 143)]:
+            with self.subTest(outcome=outcome), \
+                    mock.patch.object(host.urllib.request, "build_opener") as build, \
+                    mock.patch.object(host.subprocess, "run") as run:
+                build.return_value.open.return_value = self.response()
+                if isinstance(outcome, BaseException):
+                    run.side_effect = outcome
+                else:
+                    run.return_value = outcome
+                self.assertEqual(self.invoke("1.3.2"), expected)
+        with mock.patch.object(host.urllib.request, "build_opener", side_effect=KeyboardInterrupt()):
+            self.assertEqual(self.invoke("1.3.2"), 130)
+        self.assertNotIn("Traceback", self.stderr.getvalue())
+
+    def test_unsafe_fixture_overrides_rejected_before_io(self):
+        urls = ["", "https://127.0.0.1:123", "http://example.com:123", "file:///tmp/setup.sh",
+                "http://localhost:123", "http://127.0.0.1", "http://127.0.0.1:0", "http://127.0.0.1:65536",
+                "http://127.0.0.1:abc", "http://user@127.0.0.1:123", "http://127.0.0.1:123?x",
+                "http://127.0.0.1:123#x", "http://127.0.0.1:123?", "http://127.0.0.1:123#",
+                " http://127.0.0.1:123", "http://127.0.0.1:123\n", "http://[::ffff:192.0.2.1]:123"]
+        with mock.patch.object(host.urllib.request, "build_opener") as build:
+            for url in urls:
+                with self.subTest(url=url), mock.patch.dict(os.environ, {"YTDLP_SETUP_BASE_URL": url}):
+                    self.assertEqual(self.invoke("1.3.2", "--dry-run"), 1)
+            build.assert_not_called()
+        for url in ["http://127.0.0.1:123/release", "http://[::1]:123/release/"]:
+            with mock.patch.dict(os.environ, {"YTDLP_SETUP_BASE_URL": url}):
+                self.assertEqual(host.setup_script_url("1.3.2"), url.rstrip("/") + "/setup.sh")
+
+    def test_redirect_validation(self):
+        request = host.urllib.request.Request("https://github.com/release")
+        for fixture, allowed, rejected in [
+            (False, "https://release-assets.githubusercontent.com/script", "http://example.test/script"),
+            (True, "http://127.0.0.1:123/script", "http://example.test:123/script"),
+        ]:
+            handler = host.SetupRedirectHandler(fixture)
+            self.assertEqual(handler.redirect_request(request, None, 302, "Found", {}, allowed).full_url, allowed)
+            response = mock.Mock()
+            with self.assertRaises(ValueError):
+                handler.redirect_request(request, response, 302, "Found", {}, rejected)
+            response.close.assert_called_once()
+
+    def test_real_cli_loopback_fetch_fake_bash_and_exit_status(self):
+        log = self.root / "bash-input"
+        args = self.root / "bash-args"
+        bash = self.root / "bash"
+        bash.write_text(f"#!{sys.executable}\nimport sys\nfrom pathlib import Path\n"
+                        f"Path({str(log)!r}).write_bytes(sys.stdin.buffer.read())\n"
+                        f"Path({str(args)!r}).write_text(repr(sys.argv[1:]))\n"
+                        "import os\nprint('session', os.getsid(0), 'group', os.getpgrp(), flush=True)\n"
+                        "print('fixture stderr', file=sys.stderr)\nsys.exit(23)\n")
+        bash.chmod(0o755)
+        script = b"# harmless, never executed\n"
+        with setup_server(script) as (base, requests):
+            env = {**self.env, "YTDLP_SETUP_BASE_URL": base + "/release"}
+            result = subprocess.run([sys.executable, "-I", str(HOST_PATH), "--setup", "1.3.2", "--no-deps"],
+                                    env=env, capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 23, result.stderr)
+        self.assertEqual(requests, ["/release/setup.sh"])
+        self.assertEqual(log.read_bytes(), script)
+        self.assertEqual(args.read_text(), repr(["-s", "--", "--no-deps"]))
+        self.assertIn(f"session {os.getsid(0)} group {os.getpgrp()}".encode(), result.stdout)
+        self.assertEqual(result.stderr, b"fixture stderr\n")
+
+    def test_real_ctrl_c_returns_130_without_traceback_and_stops_child(self):
+        child_pid = self.root / "child-pid"
+        bash = self.root / "bash"
+        bash.write_text(f"#!{sys.executable}\nimport os, sys, time\nfrom pathlib import Path\n"
+                        "sys.stdin.buffer.read()\n"
+                        f"Path({str(child_pid)!r}).write_text(str(os.getpid()))\n"
+                        "time.sleep(60)\n")
+        bash.chmod(0o755)
+        with setup_server(b"# never executed\n") as (base, _):
+            process = subprocess.Popen([sys.executable, "-I", str(HOST_PATH), "--setup", "1.3.2"],
+                                       env={**self.env, "YTDLP_SETUP_BASE_URL": base},
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                deadline = time.monotonic() + 5
+                while not child_pid.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(child_pid.exists(), "Bash fixture did not start")
+                process.send_signal(signal.SIGINT)
+                stdout, stderr = process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 130, stderr)
+                self.assertEqual(stdout, b"")
+                self.assertEqual(stderr, b"Setup cancelled.\n")
+                self.assertFalse(process_alive(int(child_pid.read_text())))
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+                if child_pid.exists() and process_alive(int(child_pid.read_text())):
+                    os.kill(int(child_pid.read_text()), signal.SIGKILL)
+
+    def test_real_http_failures_dont_start_bash(self):
+        # No Bash exists in PATH: a download failure must be reported first.
+        for body, status, headers in [(b"", 200, {}), (b"#" * 1048577, 200, {}),
+                                      (b"missing", 404, {}), (b"short", 200, {"Content-Length": "20"}),
+                                      (b"", 302, {"Location": "http://example.test:123/script"})]:
+            with self.subTest(status=status, size=len(body)), setup_server(body, status, headers) as (base, _):
+                result = subprocess.run([sys.executable, "-I", str(HOST_PATH), "--setup", "1.3.2"],
+                                        env={**self.env, "YTDLP_SETUP_BASE_URL": base}, capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(b"Setup failed:", result.stderr)
+                self.assertNotIn(b"bash", result.stderr)
+                self.assertNotIn(b"Traceback", result.stderr)
+
+
+class SetupLauncherTests(unittest.TestCase):
+    def test_only_canonical_executable_regular_marked_file_is_reported_without_execution(self):
+        with tempfile.TemporaryDirectory(prefix="ytdlp-launcher-") as directory, \
+                mock.patch.dict(os.environ, {"HOME": directory, "PATH": directory}), \
+                mock.patch.object(host.subprocess, "run") as run:
+            path = Path(directory) / ".local/bin/ytdlp-setup"
+            path.parent.mkdir(parents=True)
+            missing = {"found": False, "path": None}
+            self.assertEqual(host.setup_launcher_info(), missing)
+            for header in [b"#!/bin/sh\n", b"#!/bin/sh\n# Managed by someone else\n",
+                           host.SETUP_LAUNCHER_HEADER.replace(b"\n", b"\r\n")]:
+                path.write_bytes(header)
+                path.chmod(0o755)
+                self.assertEqual(host.setup_launcher_info(), missing)
+            path.write_bytes(host.SETUP_LAUNCHER_HEADER + b"exit 77\n")
+            path.chmod(0o644)
+            self.assertEqual(host.setup_launcher_info(), missing)
+            path.chmod(0o755)
+            self.assertEqual(host.setup_launcher_info(), {"found": True, "path": str(path)})
+            target = path.with_name("real-launcher")
+            path.rename(target)
+            path.symlink_to(target)
+            self.assertEqual(host.setup_launcher_info(), missing)
+            target.unlink()
+            self.assertEqual(host.setup_launcher_info(), missing)
+            path.unlink()
+            path.mkdir()
+            self.assertEqual(host.setup_launcher_info(), missing)
+            path.rmdir()
+            os.mkfifo(path)
+            self.assertEqual(host.setup_launcher_info(), missing)
+            run.assert_not_called()
 
 
 class FramingTests(unittest.TestCase):
@@ -315,15 +591,15 @@ def process_alive(pid):
     try:
         state = Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1].split()[0]
         return state != "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return False
 
 
 class PipeHost:
     """Drive the real host process with bounded reads of native frames."""
 
-    def __init__(self, env):
-        self.process = subprocess.Popen([sys.executable, str(HOST_PATH)], stdin=subprocess.PIPE,
+    def __init__(self, env, args=()):
+        self.process = subprocess.Popen([sys.executable, str(HOST_PATH), *args], stdin=subprocess.PIPE,
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
         self.events = queue.Queue()
         self.history = []
@@ -415,7 +691,8 @@ class SubprocessTests(unittest.TestCase):
     def test_real_framing_ping_pong_and_eof(self):
         self.pipe.send({"type": "ping"})
         pong = self.pipe.until(lambda m: m["type"] == "pong")
-        self.assertEqual(pong["hostVersion"], "1.2.0")
+        self.assertEqual(pong["hostVersion"], "1.3.0")
+        self.assertEqual(pong["setupLauncher"], {"found": False, "path": None})
         self.assertEqual(pong["jsRuntime"], self.runtime)
         self.assertEqual(pong["ytDlp"]["version"], "fake-1.0")
         self.assertTrue(pong["ytDlp"]["found"])
@@ -434,6 +711,36 @@ class SubprocessTests(unittest.TestCase):
         self.assertTrue(os.path.isabs(pong["defaultSaveDir"]))
         code, stderr = self.pipe.close()
         self.assertEqual(code, 0, stderr)
+
+    def test_firefox_arguments_keep_native_framing_and_setup_messages_are_rejected(self):
+        # Firefox passes the native manifest and add-on ID. A later --setup is not CLI dispatch.
+        for args in [("/tmp/native manifest.json", "ytdlp-downloader@firstpick.dev"),
+                     ("/tmp/native.json", "--setup", "1.3.2"), ("--setup=1.3.2",)]:
+            with self.subTest(args=args):
+                native = PipeHost(self.env, args)
+                try:
+                    for kind in ["setup", "--setup"]:
+                        native.send({"type": kind, "version": "1.3.2"})
+                        error = native.until(lambda m: m["type"] == "error")
+                        self.assertEqual(error["code"], "bad_request")
+                        self.assertEqual(error["message"], "Unknown message type.")
+                    native.send({"type": "ping"})
+                    self.assertEqual(native.until(lambda m: m["type"] == "pong")["hostVersion"], "1.3.0")
+                finally:
+                    code, stderr = native.close()
+                self.assertEqual(code, 0, stderr)
+
+    def test_pong_reports_managed_launcher_without_running_it(self):
+        launcher = self.root / ".local/bin/ytdlp-setup"
+        launcher.parent.mkdir(parents=True)
+        executed = self.root / "launcher-was-run"
+        launcher.write_bytes(host.SETUP_LAUNCHER_HEADER +
+                             f"echo bad > '{executed}'\n".encode())
+        launcher.chmod(0o755)
+        self.pipe.send({"type": "ping"})
+        pong = self.pipe.until(lambda m: m["type"] == "pong")
+        self.assertEqual(pong["setupLauncher"], {"found": True, "path": str(launcher)})
+        self.assertFalse(executed.exists())
 
     def test_success_and_failure_events(self):
         self.download("success", "instant")
@@ -858,7 +1165,7 @@ class ToolAndDispatchTests(unittest.TestCase):
                         mock.patch.object(host.subprocess, "run", return_value=mock.Mock(returncode=code, stdout="2026.10.21\n")):
                     self.native.send_pong()
                     pong = self.messages()[-1]
-                    self.assertEqual(pong["hostVersion"], "1.2.0")
+                    self.assertEqual(pong["hostVersion"], "1.3.0")
                     self.assertEqual(pong["jsRuntime"], runtime)
                     self.assertEqual(pong["ytDlp"]["version"], expected_version)
 

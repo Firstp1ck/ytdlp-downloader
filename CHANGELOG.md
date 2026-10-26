@@ -2,6 +2,17 @@
 
 All notable changes to this project. Versions match `extension/manifest.json`.
 
+## [Unreleased]
+
+### Changed
+
+- Setup uses the short managed command `"$HOME/.local/bin/ytdlp-setup" VERSION` when available,
+  instead of displaying an inline Python program. Helper 1.3.0 adds the version-pinned setup CLI;
+  the installer creates and safely removes its owned launcher without changing shell profiles.
+- The checklist includes a thirteenth, setup-only launcher check. Old or missing launchers retain
+  honest curl/wget or download-and-drag bootstrap instructions, with no guessed download folder.
+- The local test version is 1.3.2 and requires helper 1.3.0. It is not published yet.
+
 ## [1.3.1] - 2026-10-26
 
 ### Added

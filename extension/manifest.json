@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "yt-dlp Downloader",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "Right-click a YouTube video, Short, or playlist, or use YouTube's player menu, and download it with yt-dlp through a local native messaging host.",
   "author": "Firstp1ck",
   "homepage_url": "https://github.com/Firstp1ck/ytdlp-downloader",

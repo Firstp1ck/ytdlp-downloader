@@ -11,6 +11,7 @@ RELEASE_HOST_SHA256=""
 
 host_name=dev.firstpick.ytdlp_downloader
 install_dir="$HOME/.local/share/ytdlp-downloader"
+setup_launcher="$HOME/.local/bin/ytdlp-setup"
 host_file=""
 target_dirs=()
 assume_yes=false
@@ -38,7 +39,7 @@ Registers the helper for Firefox, Zen and other Firefox-based browsers in
 ~/.mozilla/native-messaging-hosts, the folder they all read; explicit --target-dir
 values replace it.
 --yes accepts dependency installs; --no-deps skips them. --uninstall removes only
-the helper and its manifests. Missing Python 3.8+, coreutils and a downloader are
+the helper, its managed setup launcher and its manifests. Python 3.8+, coreutils and a downloader are
 required prerequisites; setup stops if they cannot be installed. Other offers
 include ffmpeg/ffprobe, a folder picker and XDG desktop tools. Warns about
 Flatpak/Snap browsers and offers their proxy only from configured repositories.
@@ -52,6 +53,51 @@ fail() { printf '✗ %s\n' "$*" >&2; exit 1; }
 cleanup() { if [[ -n "$temp_dir" ]]; then rm -rf -- "$temp_dir"; fi; }
 trap cleanup EXIT
 
+
+owns_setup_launcher() {
+    local first second
+    [[ -f "$setup_launcher" && ! -L "$setup_launcher" && -r "$setup_launcher" ]] || return 1
+    { IFS= read -r first && IFS= read -r second; } <"$setup_launcher" || return 1
+    [[ "$first" == '#!/bin/sh' && "$second" == '# Managed by yt-dlp Downloader' ]]
+}
+
+check_setup_launcher() {
+    if [[ -e "$setup_launcher" || -L "$setup_launcher" ]] && ! owns_setup_launcher; then
+        fail "Refusing to overwrite unmanaged setup launcher: $setup_launcher"
+    fi
+}
+
+install_setup_launcher() {
+    if "$dry_run"; then
+        printf 'Would install managed setup launcher: %s\n' "$setup_launcher"
+        return
+    fi
+    check_setup_launcher
+    # Generate from the installed (release-checksummed) host, with no new asset.
+    # shlex.quote handles spaces, apostrophes and shell metacharacters in both paths.
+    python3 -I - "$setup_launcher" "$install_dir/ytdlp_host.py" <<'LAUNCHER'
+import os
+from pathlib import Path
+import shlex
+import sys
+import tempfile
+
+launcher, host = map(Path, sys.argv[1:])
+launcher.parent.mkdir(parents=True, exist_ok=True)
+script = ("#!/bin/sh\n# Managed by yt-dlp Downloader\nexec " + shlex.quote(sys.executable)
+          + " -I " + shlex.quote(str(host)) + ' --setup "$@"\n')
+fd, temporary = tempfile.mkstemp(prefix=".ytdlp-setup-", dir=launcher.parent)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        stream.write(script)
+        os.fchmod(stream.fileno(), 0o755)
+    os.replace(temporary, launcher)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+LAUNCHER
+    printf '✓ Installed setup launcher: %s\n' "$setup_launcher"
+}
 
 sandboxed_browsers() {
     # Print "Name (Flatpak|Snap)" for Firefox-based browsers installed sandboxed.
@@ -101,6 +147,15 @@ check_sandboxed_browsers() {
 
 remove_host() {
     local target_dir
+    if owns_setup_launcher; then
+        if "$dry_run"; then
+            printf 'Would remove managed setup launcher: %s\n' "$setup_launcher"
+        else
+            rm -f -- "$setup_launcher"
+        fi
+    elif [[ -e "$setup_launcher" || -L "$setup_launcher" ]]; then
+        printf 'Preserving unmanaged setup launcher: %s\n' "$setup_launcher"
+    fi
     for target_dir in "${target_dirs[@]}"; do
         if "$dry_run"; then
             printf 'Would remove: %s/%s.json\n' "$target_dir" "$host_name"
@@ -493,6 +548,7 @@ register_host() {
     if "$dry_run"; then
         printf 'Would install executable: %s/ytdlp_host.py\n' "$install_dir"
         for target_dir in "${target_dirs[@]}"; do printf 'Would write manifest: %s/%s.json\n' "$target_dir" "$host_name"; done
+        install_setup_launcher
         return
     fi
     mkdir -p -- "$install_dir"
@@ -518,6 +574,7 @@ PY
         printf '✓ Installed manifest: %s/%s.json\n' "$target_dir" "$host_name"
     done
     printf '✓ Installed host: %s/ytdlp_host.py\n' "$install_dir"
+    install_setup_launcher
 }
 
 parse_args() {
@@ -543,6 +600,8 @@ parse_args() {
 main() {
     parse_args "$@"
     if "$uninstall"; then remove_host; exit 0; fi
+    # Refuse collisions before prerequisite/dependency installs or downloads.
+    check_setup_launcher
     check_prerequisites
     check_sandboxed_browsers
     if ! "$no_deps"; then check_dependencies; fi

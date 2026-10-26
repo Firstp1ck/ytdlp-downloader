@@ -6,6 +6,8 @@ It is one executable path, never a shell command or a list of extra arguments.
 """
 
 import collections
+import http.client
+import ipaddress
 import json
 import math
 import os
@@ -13,15 +15,21 @@ from pathlib import Path
 import re
 import shutil
 import signal
+import stat
 import struct
 import subprocess
 import sys
 import threading
 import uuid
 from urllib.parse import urlsplit
+import urllib.error
+import urllib.request
 
 
-HOST_VERSION = "1.2.0"
+HOST_VERSION = "1.3.0"
+SETUP_RELEASE_BASE = "https://github.com/Firstp1ck/ytdlp-downloader/releases/download"
+MAX_SETUP_BYTES = 1024 * 1024
+SETUP_LAUNCHER_HEADER = b"#!/bin/sh\n# Managed by yt-dlp Downloader\n"
 MAX_CONCURRENT = 2
 MAX_MESSAGE_BYTES = 1024 * 1024
 # Firefox rejects host messages over 1 MB; a long playlist's path list could exceed it.
@@ -55,6 +63,106 @@ class HostError(Exception):
     def __init__(self, code, message):
         super().__init__(message)
         self.code = code
+
+
+def setup_script_url(version):
+    """Build the pinned URL; the test override is a literal loopback release directory."""
+    if not re.fullmatch(r"[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}", version):
+        raise ValueError("VERSION must have three numeric parts, each 1–9 digits (for example 1.3.2).")
+    override = os.environ.get("YTDLP_SETUP_BASE_URL")
+    if override is None:
+        return f"{SETUP_RELEASE_BASE}/v{version}/setup.sh"
+    validate_setup_fixture_url(override)
+    return override.rstrip("/") + "/setup.sh"
+
+
+def validate_setup_fixture_url(url):
+    """Allow explicit HTTP IP-loopback fixtures, without credentials or URL suffixes."""
+    try:
+        parsed = urlsplit(url)
+        if (any(ord(char) <= 32 or ord(char) == 127 for char in url)
+                or parsed.scheme != "http" or not parsed.hostname
+                or not ipaddress.ip_address(parsed.hostname).is_loopback
+                or parsed.port is None or not 1 <= parsed.port <= 65535
+                or parsed.username is not None or parsed.password is not None
+                or parsed.query or parsed.fragment or "?" in url or "#" in url):
+            raise ValueError()
+    except ValueError as exc:
+        raise ValueError("YTDLP_SETUP_BASE_URL must be an HTTP loopback IP URL with an explicit port.") from exc
+
+
+class SetupRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Keep HTTPS redirects secure and loopback fixtures confined to loopback."""
+
+    def __init__(self, fixture):
+        super().__init__()
+        self.fixture = fixture
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        try:
+            if self.fixture:
+                validate_setup_fixture_url(newurl)
+            elif urlsplit(newurl).scheme != "https":
+                raise ValueError("Setup download refused a redirect away from HTTPS.")
+        except ValueError:
+            if fp is not None:
+                fp.close()
+            raise
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def setup_cli(args):
+    """Fetch completely before Bash; inherit the terminal and retain dependency consent."""
+    try:
+        if not args or any(arg not in {"--no-deps", "--dry-run"} for arg in args[1:]):
+            raise ValueError("Usage: --setup VERSION [--no-deps] [--dry-run]")
+        url = setup_script_url(args[0])
+        if "--dry-run" in args[1:]:
+            print(f"Would download and run with bash: {url}" +
+                  (" (--no-deps)" if "--no-deps" in args[1:] else ""))
+            return 0
+        fixture = "YTDLP_SETUP_BASE_URL" in os.environ
+        handlers = [SetupRedirectHandler(fixture)]
+        if fixture:
+            # Local tests must not send their fixture requests to an ambient proxy.
+            handlers.append(urllib.request.ProxyHandler({}))
+        opener = urllib.request.build_opener(*handlers)
+        with opener.open(url, timeout=30) as response:
+            script = response.read(MAX_SETUP_BYTES + 1)
+            length = response.headers.get("Content-Length")
+            if length is not None and (not re.fullmatch(r"[0-9]+", length)
+                                       or int(length) != len(script)):
+                raise ValueError("Setup download was incomplete or had an invalid Content-Length.")
+        if not script:
+            raise ValueError("Setup download was empty.")
+        if len(script) > MAX_SETUP_BYTES:
+            raise ValueError("Setup download exceeded the 1 MiB limit.")
+        flags = [arg for arg in args[1:] if arg == "--no-deps"]
+        result = subprocess.run(["bash", "-s", "--", *flags], input=script, check=False)
+        return result.returncode if result.returncode >= 0 else 128 - result.returncode
+    except KeyboardInterrupt:
+        print("Setup cancelled.", file=sys.stderr)
+        return 130
+    except (OSError, ValueError, urllib.error.URLError, http.client.HTTPException) as exc:
+        if isinstance(exc, urllib.error.HTTPError):
+            exc.close()
+        print(f"Setup failed: {exc}", file=sys.stderr)
+        return 1
+
+
+def setup_launcher_info():
+    """Inspect the canonical launcher without following a symlink or executing it."""
+    path = Path.home() / ".local/bin/ytdlp-setup"
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        with os.fdopen(fd, "rb") as stream:
+            regular = stat.S_ISREG(os.fstat(stream.fileno()).st_mode)
+            header = stream.read(len(SETUP_LAUNCHER_HEADER)) if regular else b""
+        if regular and os.access(path, os.X_OK) and header == SETUP_LAUNCHER_HEADER:
+            return {"found": True, "path": str(path)}
+    except OSError:
+        pass
+    return {"found": False, "path": None}
 
 
 def read_exact(stream, size):
@@ -490,6 +598,7 @@ class NativeHost:
         sandboxed = any(os.environ.get(name) for name in ("FLATPAK_ID", "SNAP", "SNAP_NAME"))
         proxy_applicable = True if sandboxed else None
         self.send({"type": "pong", "hostVersion": HOST_VERSION,
+                   "setupLauncher": setup_launcher_info(),
                    "ytDlp": {"found": binary is not None, "path": binary, "version": version},
                    "ffmpeg": {"found": ffmpeg is not None, "path": ffmpeg},
                    "python": {"found": True, "path": sys.executable,
@@ -775,4 +884,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["--setup"]:
+        sys.exit(setup_cli(sys.argv[2:]))
     main()

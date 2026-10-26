@@ -11,13 +11,14 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { setupCommand } = require("../shared/setup-info.js");
 
 const ROOT = path.join(__dirname, "..");
 const HTML = fs.readFileSync(path.join(ROOT, "setup/setup.html"), "utf8");
 const VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8")).version;
 const READY_PONG = {
   type: "pong",
-  hostVersion: "1.2.0",
+  hostVersion: "1.3.0",
   python: { found: true, path: "/usr/bin/python3", version: "3.14.0", supported: true },
   ytDlp: { found: true, path: "/usr/bin/yt-dlp", version: "2026.10.21" },
   ffmpeg: { found: true, path: "/usr/bin/ffmpeg" },
@@ -26,13 +27,14 @@ const READY_PONG = {
   picker: "zenity",
   opener: { found: true, path: "/usr/bin/xdg-open" },
   userDirs: { found: true, path: "/usr/bin/xdg-user-dir" },
+  setupLauncher: { found: true, path: "/home/user/.local/bin/ytdlp-setup" },
   downloader: { found: true, name: "curl", path: "/usr/bin/curl" },
   coreutils: { found: true, missing: [] },
   nativeMessagingProxy: { found: true, path: "/usr/bin/xdg-native-messaging-proxy", applicable: true },
 };
 const REPLY = { ok: true, pong: READY_PONG };
 const reply = (patch) => ({ ok: true, pong: { ...READY_PONG, ...patch } });
-const KEYS = ["helper", "python", "ytdlp", "ffmpeg", "ffprobe", "jsRuntime", "picker", "opener", "userDirs", "downloader", "coreutils", "nativeMessagingProxy"];
+const KEYS = ["helper", "python", "ytdlp", "ffmpeg", "ffprobe", "jsRuntime", "picker", "opener", "userDirs", "setupLauncher", "downloader", "coreutils", "nativeMessagingProxy"];
 const MISSING = { ok: false, error: "No such native application dev.firstpick.ytdlp_downloader" };
 
 class FakeElement {
@@ -169,7 +171,7 @@ function part(row, className) {
   return row.children.find((child) => child.className === className);
 }
 
-test("initial checking and missing-helper states always show twelve checks with bootstrap context", async () => {
+test("initial checking and missing-helper states always show thirteen checks with bootstrap context", async () => {
   const page = boot([MISSING]);
   assert.equal(page.el("setup-card").dataset.state, "checking");
   assert.ok([...rows(page).values()].every((row) => row.dataset.status === "pending"));
@@ -181,7 +183,7 @@ test("initial checking and missing-helper states always show twelve checks with 
   assert.equal(page.el("command").textContent, `curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v${VERSION}/setup.sh | bash`);
   assert.match(page.el("command-alternatives").textContent, /availability cannot be checked.*wget -qO-/);
   assert.ok(page.el("command-alternatives").textContent.includes(`/v${VERSION}/setup.sh | bash`));
-  assert.match(page.el("command-alternatives").textContent, /View the script first.*save.*setup\.sh.*bash setup\.sh/);
+  assert.match(page.el("command-alternatives").textContent, /Download setup\.sh.*save.*bash followed by one space.*drag.*full path.*Enter/);
   assert.equal(page.el("script-link").href, `https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v${VERSION}/setup.sh`);
   assert.equal(page.el("manual-link").href, "https://github.com/Firstp1ck/ytdlp-downloader#install");
   assert.equal(page.el("error-details").hidden, false);
@@ -234,6 +236,8 @@ test("all rows have visible status words, requirement text and decorative icons"
       { ok: "Passed", bad: "Needs action", warn: "Warning", pending: "Pending" }[row.dataset.status]);
   }
   assert.equal(part(rows(page).get("ffprobe"), "check-requirement").textContent, "Required for downloads");
+  assert.equal(rows(page).size, 13);
+  assert.equal(part(rows(page).get("setupLauncher"), "check-requirement").textContent, "Setup only");
   assert.equal(part(rows(page).get("downloader"), "check-requirement").textContent, "Setup only");
   assert.equal(part(rows(page).get("nativeMessagingProxy"), "check-requirement").textContent, "Conditional: Flatpak / Snap");
 });
@@ -258,6 +262,7 @@ test("each optional/setup warning names the missing tool, offers installation, a
   for (const [key, report, label] of [
     ["jsRuntime", null, "JavaScript runtime"], ["picker", null, "Folder picker"],
     ["opener", { found: false }, "Folder opener"], ["userDirs", { found: false }, "Downloads-folder detection"],
+    ["setupLauncher", { found: false, path: null }, "Setup launcher"],
     ["downloader", { found: false }, "curl / wget downloader"],
     ["coreutils", { found: false, missing: ["install"] }, "Coreutils"],
     ["nativeMessagingProxy", { found: false, applicable: true }, "Sandbox proxy"],
@@ -291,7 +296,7 @@ test("generic guidance names multiple optional tools even alongside required fai
 });
 
 test("unreported optional checks remain pending with assistance and polling", async () => {
-  for (const key of ["jsRuntime", "picker", "opener", "userDirs", "downloader", "coreutils"]) {
+  for (const key of ["jsRuntime", "picker", "opener", "userDirs", "setupLauncher", "downloader", "coreutils"]) {
     const page = boot([reply({ [key]: undefined }), REPLY]);
     await flush();
     assert.equal(page.el("setup-card").dataset.state, "ready", key);
@@ -301,7 +306,8 @@ test("unreported optional checks remain pending with assistance and polling", as
     assert.equal(page.el("command-block").hidden, false);
     assert.deepEqual(page.pollDelays(), [2500]);
     if (key === "downloader") {
-      assert.match(page.el("command-alternatives").textContent, /helper has not reported which downloader/);
+      assert.match(page.el("command-alternatives").textContent, /Using the verified setup launcher/);
+      assert.doesNotMatch(page.el("command-alternatives").textContent, /Neither curl nor wget was found/);
     }
     await page.tick();
     assert.deepEqual(page.sent.at(-1), { type: "ping", reconnect: true });
@@ -323,12 +329,12 @@ test("unknown sandbox applicability stays conditional without proxy warning or o
   }
 });
 
-test("1.1.0 and older helpers request an update and reconnect on the next check", async () => {
-  for (const hostVersion of ["1.1.0", "1.0.0", "0.9.0"]) {
+test("1.2.x and older helpers request an update and reconnect on the next check", async () => {
+  for (const hostVersion of ["1.2.0", "1.1.0", "1.0.0", "0.9.0"]) {
     const page = boot([reply({ hostVersion }), REPLY]);
     await flush();
     assert.equal(page.el("state-title").textContent, "Update the helper");
-    assert.ok(page.el("state-lead").textContent.includes(`version ${hostVersion}; this extension needs 1.2.0 or newer`));
+    assert.ok(page.el("state-lead").textContent.includes(`version ${hostVersion}; this extension needs 1.3.0 or newer`));
     assert.equal(page.el("command-block").hidden, false);
     await page.tick();
     assert.deepEqual(page.sent.at(-1), { type: "ping", reconnect: true });
@@ -343,8 +349,8 @@ test("current helper with missing/malformed required diagnostics explains the re
       await flush();
       assert.equal(page.el("setup-card").dataset.state, "outdated");
       assert.equal(page.el("state-title").textContent, "Update or reinstall the helper");
-      assert.match(page.el("state-lead").textContent, /version 1\.2\.0, but required diagnostics are missing or invalid/);
-      assert.doesNotMatch(page.el("state-lead").textContent, /version 1\.2\.0; this extension needs 1\.2\.0/);
+      assert.match(page.el("state-lead").textContent, /version 1\.3\.0, but required diagnostics are missing or invalid/);
+      assert.doesNotMatch(page.el("state-lead").textContent, /version 1\.3\.0; this extension needs 1\.3\.0/);
       assert.equal(rows(page).get(key).dataset.status, "pending");
       assert.equal(page.el("command-block").hidden, false);
       assert.equal(page.el("ready-block").hidden, true);
@@ -474,7 +480,7 @@ test("failed background messaging becomes bootstrap guidance even for a non-Erro
 });
 
 test("wget-only diagnostics choose a pinned wget pipeline and Copy follows the displayed command", async () => {
-  const page = boot([reply({ downloader: { found: true, name: "wget", path: "/usr/bin/wget" }, picker: null })]);
+  const page = boot([reply({ setupLauncher: { found: false, path: null }, downloader: { found: true, name: "wget", path: "/usr/bin/wget" }, picker: null })]);
   await flush();
   const command = `wget -qO- https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v${VERSION}/setup.sh | bash`;
   assert.equal(page.el("command").textContent, command);
@@ -484,44 +490,95 @@ test("wget-only diagnostics choose a pinned wget pipeline and Copy follows the d
   assert.deepEqual(page.state.copied, [command]);
 });
 
-test("no downloader provides browser-save instructions before bash setup.sh, and copies that command", async () => {
-  const page = boot([reply({ downloader: { found: false, name: null, path: null } })]);
-  await flush();
-  assert.equal(page.el("setup-card").dataset.state, "ready");
-  assert.equal(page.el("command-block").hidden, false);
-  assert.equal(page.el("command").textContent, "bash setup.sh");
-  assert.match(page.el("command-label").textContent, /Save the script first.*terminal in its folder/);
-  assert.match(page.el("command-alternatives").textContent, /Neither curl nor wget was found.*View the script first.*save.*setup\.sh.*bash setup\.sh/);
-  assert.equal(page.el("script-link").href, `https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v${VERSION}/setup.sh`);
-  await page.el("copy").click();
-  assert.deepEqual(page.state.copied, ["bash setup.sh"]);
-  assert.deepEqual(page.pollDelays(), [2500, 2500], "warning polling and copy feedback both remain scheduled");
+test("verified launcher is preferred over both downloaders and Copy is the real short command", async () => {
+  for (const downloader of [{ found: true, name: "curl" }, { found: true, name: "wget" }, { found: false }, undefined]) {
+    const page = boot([reply({ downloader, picker: null, setupLauncher: { ...READY_PONG.setupLauncher, command: "echo unsafe" } })]);
+    await flush();
+    const command = `"$HOME/.local/bin/ytdlp-setup" ${VERSION}`;
+    assert.equal(page.el("setup-card").dataset.state, "ready");
+    assert.equal(page.el("command-block").hidden, false);
+    assert.equal(page.el("command").textContent, command);
+    assert.match(page.el("command-label").textContent, /terminal anywhere/);
+    assert.match(page.el("command-alternatives").textContent, /verified setup launcher.*asks before installing dependencies/);
+    assert.equal(page.el("download-step").hidden, true);
+    assert.doesNotMatch(page.el("command").textContent, /python|urllib|subprocess|unsafe|-c /i);
+    await page.el("copy").click();
+    assert.deepEqual(page.state.copied, [command]);
+  }
 });
 
-test("Copy feedback resets and follows a changed downloader command", async () => {
-  const page = boot([MISSING, reply({ downloader: { found: false, name: null } })]);
+test("manual bootstrap downloads first, then copies only bash with a trailing space before dragging the file", async () => {
+  const page = boot([reply({ setupLauncher: { found: false, path: null }, downloader: { found: false } })]);
+  await flush();
+  assert.equal(page.el("setup-card").dataset.state, "ready");
+  assert.equal(page.el("command").textContent, "bash ");
+  assert.equal(page.el("download-step").hidden, false);
+  assert.match(HTML, /id="download-step"[^>]*>1\. First, use Download setup\.sh/);
+  assert.ok(HTML.indexOf('id="download-step"') < HTML.indexOf('id="script-link"'));
+  assert.ok(HTML.indexOf('id="script-link"') < HTML.indexOf('id="command-label"'));
+  assert.match(HTML, /id="script-link"[^>]*>Download setup\.sh<\/a>/);
+  assert.match(page.el("command-label").textContent, /2\..*bash followed by one space.*Do not press Enter yet/);
+  assert.match(page.el("command-alternatives").textContent, /3\. Drag the actual downloaded.*full path.*then press Enter/);
+  assert.match(page.el("command-alternatives").textContent, /downloads list.*reveal-folder action/);
+  assert.doesNotMatch(page.el("command-alternatives").textContent, /~\/Downloads|bash setup\.sh|Python/);
+  await page.el("copy").click();
+  assert.deepEqual(page.state.copied, ["bash "]);
+  assert.match(page.el("copy-status").textContent, /trailing space.*drag the downloaded file/);
+});
+
+test("old or malformed launcher reports offer honest bootstrap guidance rather than the short command", async () => {
+  for (const setupLauncher of [undefined, null, { found: true, path: "/tmp/unsafe" }, { found: "true", path: READY_PONG.setupLauncher.path },
+    { found: false, path: null }]) {
+    const page = boot([reply({ hostVersion: "1.2.0", setupLauncher })]);
+    await flush();
+    assert.equal(page.el("setup-card").dataset.state, "outdated");
+    assert.match(page.el("state-lead").textContent, /needs 1\.3\.0 or newer/);
+    assert.equal(page.el("command").textContent, setupCommand(VERSION, "curl"));
+    assert.match(page.el("command-alternatives").textContent, /bootstrap.*working setup launcher has not been confirmed/);
+    assert.equal(rows(page).get("setupLauncher").dataset.status, setupLauncher?.found === false ? "warn" : "pending");
+  }
+  const capable = boot([reply({ hostVersion: "1.2.0" })]);
+  await flush();
+  assert.equal(capable.el("command").textContent, setupCommand(VERSION, "launcher"));
+  assert.match(capable.el("state-lead").textContent, /needs 1\.3\.0 or newer/);
+});
+
+test("unknown downloader and unverified launcher offer conditional curl and wget with a manual alternative", async () => {
+  const page = boot([reply({ setupLauncher: undefined, downloader: undefined })]);
+  await flush();
+  assert.equal(page.el("command").textContent, setupCommand(VERSION, "curl"));
+  assert.match(page.el("command-label").textContent, /If curl is installed/);
+  assert.match(page.el("command-alternatives").textContent, /has not reported which downloader.*If wget is installed.*Browser alternative/);
+  assert.match(page.el("command-alternatives").textContent, /Download setup\.sh.*bash followed by one space.*drag.*full path/);
+});
+
+test("Copy feedback resets and follows a changed setup method", async () => {
+  const page = boot([MISSING, reply({ downloader: { found: false } })]);
   await flush();
   await page.el("copy").click();
   assert.equal(page.el("copy-status").dataset.state, "ok");
   assert.equal(page.el("copy").textContent, "Copied ✓");
   await page.tick();
-  assert.equal(page.el("command").textContent, "bash setup.sh");
+  const command = setupCommand(VERSION, "launcher");
+  assert.equal(page.el("command").textContent, command);
   assert.equal(page.el("copy").textContent, "Copy");
   assert.equal(page.el("copy-status").textContent, "");
   await page.el("copy").click();
-  assert.deepEqual(page.state.copied, [
-    `curl -fsSL https://github.com/Firstp1ck/ytdlp-downloader/releases/download/v${VERSION}/setup.sh | bash`, "bash setup.sh",
-  ]);
+  assert.deepEqual(page.state.copied, [setupCommand(VERSION, "curl"), command]);
 });
 
-test("Copy falls back to selecting the actual command", async () => {
-  const page = boot([reply({ downloader: { found: false } })], { clipboard: async () => { throw new Error("NotAllowedError"); } });
-  await flush();
-  await page.el("copy").click();
-  assert.ok(page.state.selected >= 1);
-  assert.deepEqual(page.state.copied, ["bash setup.sh"]);
-  assert.equal(page.el("copy-status").dataset.state, "error");
-  assert.match(page.el("copy-status").textContent, /press Ctrl\+C/);
+test("Copy failure selects the exact displayed launcher command or manual prefix", async () => {
+  for (const [patch, command] of [[{}, setupCommand(VERSION, "launcher")],
+    [{ setupLauncher: { found: false, path: null }, downloader: { found: false } }, "bash "]]) {
+    const page = boot([reply({ ...patch, picker: null })], { clipboard: async () => { throw new Error("NotAllowedError"); } });
+    await flush();
+    await page.el("copy").click();
+    assert.ok(page.state.selected >= 1);
+    assert.equal(page.el("command").textContent, command);
+    assert.deepEqual(page.state.copied, [command]);
+    assert.equal(page.el("copy-status").dataset.state, "error");
+    assert.match(page.el("copy-status").textContent, /press Ctrl\+C/);
+  }
 });
 
 test("native diagnostics and browser errors are rendered as plain text", async () => {

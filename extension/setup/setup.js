@@ -171,18 +171,27 @@ function render(view) {
   }
   displayedCommand = nextCommand;
   commandCode.textContent = displayedCommand;
+  document.getElementById("download-step").hidden = method !== "browser";
   document.getElementById("command-label").textContent = method === "browser"
-    ? "Save the script first, then open a terminal in its folder and run:"
-    : "Open a terminal, paste this command, and press Enter:";
-  const browserSave = "Open “View the script first” below, save that version’s script as setup.sh, then run bash setup.sh in its folder.";
+    ? "2. Open a terminal and paste or type this prefix (bash followed by one space). Do not press Enter yet:"
+    : view.setupMethod === "unknown"
+      ? "If curl is installed, open a terminal, paste this bootstrap command, and press Enter:"
+      : "Open a terminal anywhere, paste this command, and press Enter:";
+  const browserSave = "First use “Download setup.sh” above to save the script. In a terminal, paste or type bash followed by one space, " +
+    "then drag the actual downloaded file into the terminal so its full path is inserted, and press Enter. " +
+    "Find the file in your browser's downloads list or use its reveal-folder action, then drag the file from that folder.";
   const downloaderUnknown = view.state === "checking" || view.state === "missing"
     ? "Downloader availability cannot be checked until the helper answers."
     : "The helper has not reported which downloader is available.";
-  document.getElementById("command-alternatives").textContent = view.setupMethod === "browser"
-    ? `Neither curl nor wget was found. ${browserSave}`
-    : view.setupMethod === "unknown"
-      ? `${downloaderUnknown} If curl is unavailable, use ${setupCommand(VERSION, "wget")}, or use your browser: ${browserSave}`
-      : `Using ${method} to download this release’s setup script. Browser alternative: ${browserSave}`;
+  document.getElementById("command-alternatives").textContent = method === "launcher"
+    ? "Using the verified setup launcher to download and run this release's setup script. Setup still asks before installing dependencies."
+    : method === "browser"
+      ? "3. Drag the actual downloaded setup.sh file into the terminal so its full path is inserted after the space, then press Enter. " +
+        "Find it in your browser's downloads list or use its reveal-folder action and drag the file from that folder. " +
+        "Neither curl nor wget was found; the downloaded script can offer to install a downloader and asks before dependency changes."
+      : view.setupMethod === "unknown"
+        ? `${downloaderUnknown} A working setup launcher has not been confirmed. If wget is installed instead, use ${setupCommand(VERSION, "wget")}. Browser alternative: ${browserSave}`
+        : `Using ${method} to bootstrap this release’s setup script; a working setup launcher has not been confirmed. Browser alternative: ${browserSave}`;
   const warningNames = view.checklist.filter((check) => view.warnings.includes(check.key)).map((check) => check.label);
   const unknownNames = view.checklist.filter((check) => view.unknownChecks.includes(check.key) &&
     !["python", "ytdlp", "ffmpeg", "ffprobe"].includes(check.key)).map((check) => check.label);
@@ -289,7 +298,9 @@ function showCopyStatus(text, state) {
 copyButton.addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(displayedCommand);
-    showCopyStatus("Copied. Paste it into a terminal.", "ok");
+    showCopyStatus(displayedCommand === "bash "
+      ? "Prefix copied, including the trailing space. Paste it into a terminal, drag the downloaded file after it, then press Enter."
+      : "Copied. Paste it into a terminal.", "ok");
   } catch {
     selectCommand();
     commandCode.focus();

@@ -7,8 +7,10 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.join(__dirname, "..");
+const VERSION = require("../manifest.json").version;
 const READY = {
-  hostVersion: "1.2.0",
+  hostVersion: "1.3.0",
+  setupLauncher: { found: true, path: "/home/test/.local/bin/ytdlp-setup" },
   python: { found: true, version: "3.12.0", supported: true, path: "/usr/bin/python3" },
   ytDlp: { found: true, version: "2026.10.21", path: "/usr/bin/yt-dlp" },
   ffmpeg: { found: true, path: "/usr/bin/ffmpeg" },
@@ -70,7 +72,7 @@ async function boot(page, pong) {
     browser: {
       storage: { local: { get: async () => ({}), set: async () => {} } },
       runtime: {
-        getManifest: () => ({ version: "1.3.1" }),
+        getManifest: () => ({ version: VERSION }),
         sendMessage: async (message) => message.type === "getState"
           ? { downloads: [], host: { reachable: true, pong } }
           : { ok: true, pong },
@@ -106,7 +108,7 @@ test("settings and popup do not warn for a healthy host with unknown proxy appli
 test("old helper versions request an update in settings and popup", async () => {
   const pong = { ...READY, hostVersion: "1.1.0" };
   const settings = await boot("options", pong);
-  assert.match(settings("host-install-text").textContent, /version 1\.1\.0 needs to be 1\.2\.0 or newer/);
+  assert.match(settings("host-install-text").textContent, /version 1\.1\.0 needs to be 1\.3\.0 or newer/);
   const popup = await boot("popup", pong);
   assert.equal(popup("setup-banner").hidden, false);
   assert.match(popup("setup-text").textContent, /helper program needs an update/);
@@ -138,7 +140,7 @@ test("incomplete current-helper diagnostics are not described as an older helper
   const { python, ...pong } = READY;
   const settings = await boot("options", pong);
   assert.match(settings("host-install-text").textContent, /not confirmed/);
-  assert.doesNotMatch(settings("host-install-text").textContent, /version 1\.2\.0 needs/);
+  assert.doesNotMatch(settings("host-install-text").textContent, /version 1\.3\.0 needs/);
   const popup = await boot("popup", pong);
   assert.match(popup("setup-text").textContent, /required diagnostics are not confirmed/);
 });

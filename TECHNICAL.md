@@ -119,6 +119,28 @@ user pastes:  curl -fsSL …/releases/download/v<version>/setup.sh | bash
   availability changes, the host refreshes its default directory with a one-second lookup; existing
   jobs retain their selected paths and future default-directory downloads use the refreshed value.
 
+## Unreleased short setup command
+
+Extension 1.3.2 requires helper 1.3.0. The installer generates the marked executable
+`$HOME/.local/bin/ytdlp-setup`, which invokes the installed helper's explicit `--setup VERSION`
+CLI in isolated Python. The setup page prefers the fixed HOME-based short command only when the
+helper reports a verified owned launcher. It never copies a command string supplied by the host.
+A thirteenth setup-only row covers the launcher; missing/unknown capability remains warning/pending
+and falls back to curl/wget or an explicit download-and-drag `bash ` prefix.
+
+Setup CLI validates three numeric version components before I/O, fetches only the fixed matching
+HTTPS release script with verified TLS, a 30-second socket timeout and a 1 MiB limit, rejects empty
+or incomplete bodies, then passes the bytes to Bash while preserving terminal confirmation and
+child failure status. `--dry-run` performs no fetch or execution; only `--no-deps` is otherwise
+forwarded. The existing `YTDLP_SETUP_BASE_URL` test override is limited in the CLI to literal HTTP
+loopback IPs with explicit ports. No native-message operation runs setup. Firefox's ordinary
+manifest-path/add-on-ID startup arguments retain the framed protocol.
+
+The installer refuses unmanaged files and symlinks at the launcher location, atomically replaces
+owned launchers, and removes only the owned marker on Python-free uninstall. No extra release
+asset, checksum placeholder, shell-profile edit or browser permission is introduced. Installed
+version 1.3.1 does not have this CLI; local tests must use the updated checkout helper or fixtures.
+
 ## Design decisions
 
 | Decision | Why |
@@ -182,9 +204,10 @@ Missing option keys get host defaults; unknown keys and invalid values are rejec
 ### Host → extension
 
 ```jsonc
-{"type": "pong", "hostVersion": "1.2.0",
+{"type": "pong", "hostVersion": "1.3.0",
  "ytDlp": {"found": true, "path": "/usr/bin/yt-dlp", "version": "2026.10.21"},  // version null = doesn't run
  "ffmpeg": {"found": true, "path": "/usr/bin/ffmpeg"},
+ "setupLauncher": {"found": true, "path": "/home/u/.local/bin/ytdlp-setup"},  // since 1.3.0
  "python": {"found": true, "path": "/usr/bin/python3", "version": "3.12.0", "supported": true},
  "ffprobe": {"found": true, "path": "/usr/bin/ffprobe"},
  "downloader": {"found": true, "name": "curl", "path": "/usr/bin/curl"},
@@ -205,7 +228,9 @@ Missing option keys get host defaults; unknown keys and invalid values are rejec
 {"type": "directory", "requestId": "...", "path": "/abs" | null}       // null = dialog cancelled
 ```
 
-- New dependency fields are reported since helper 1.2.0. Python describes the running interpreter.
+- `setupLauncher` is added in helper 1.3.0. Found requires the canonical executable regular non-symlink
+  file with the exact two-line managed header; detection is a bounded no-follow read, not execution.
+- Other extended dependency fields are reported since helper 1.2.0. Python describes the running interpreter.
   Coreutils covers cat, mkdir, install, rm, rmdir, mktemp and uname. A downloader may be curl or wget.
   Proxy applicability is true only with explicit sandbox environment markers; otherwise it is null,
   not a claim that no proxy is needed. These status fields use executable discovery; an XDG

@@ -22,7 +22,7 @@
   const MANUAL_INSTALL_URL = `https://github.com/${REPO}#install`;
   // Oldest host whose protocol this extension speaks. Raise it together with
   // a host change the extension depends on.
-  const MIN_HOST_VERSION = "1.2.0";
+  const MIN_HOST_VERSION = "1.3.0";
   const SETUP_STATES = Object.freeze(["checking", "missing", "outdated", "tools", "ready"]);
 
   /**
@@ -32,22 +32,26 @@
    * @returns {string}
    */
   function setupScriptUrl(version) {
-    if (parseVersion(version) === null) throw new TypeError(`Not a release version: ${version}`);
+    const match = typeof version === "string" ? /^[0-9]{1,9}\.[0-9]{1,9}\.[0-9]{1,9}$/.exec(version) : null;
+    if (!match || match[0] !== version) {
+      throw new TypeError("Expected a release version with three numeric components of 1–9 digits");
+    }
     return `https://github.com/${REPO}/releases/download/v${version}/setup.sh`;
   }
 
   /**
    * The command the user pastes into a terminal.
    * @param {string} version extension version
-   * @param {"curl" | "wget" | "browser"} [downloader] browser means save the pinned script first
+   * @param {"launcher" | "curl" | "wget" | "browser"} [method] browser means save the pinned script first
    * @returns {string}
    */
-  function setupCommand(version, downloader = "curl") {
+  function setupCommand(version, method = "curl") {
     const url = setupScriptUrl(version);
-    if (downloader === "curl") return `curl -fsSL ${url} | bash`;
-    if (downloader === "wget") return `wget -qO- ${url} | bash`;
-    if (downloader === "browser") return "bash setup.sh";
-    throw new TypeError("Unknown setup downloader");
+    if (method === "launcher") return `"$HOME/.local/bin/ytdlp-setup" ${version}`;
+    if (method === "curl") return `curl -fsSL ${url} | bash`;
+    if (method === "wget") return `wget -qO- ${url} | bash`;
+    if (method === "browser") return "bash ";
+    throw new TypeError("Unknown setup method");
   }
 
   /**
@@ -102,6 +106,7 @@
     picker: ["Folder picker", "Optional convenience"],
     opener: ["Folder opener", "Optional convenience"],
     userDirs: ["Downloads-folder detection", "Optional convenience"],
+    setupLauncher: ["Setup launcher", "Setup only"],
     downloader: ["curl / wget downloader", "Setup only"],
     coreutils: ["Coreutils", "Setup only"],
     nativeMessagingProxy: ["Sandbox proxy", "Conditional: Flatpak / Snap"],
@@ -117,7 +122,7 @@
    *   checklist: CheckItem[], missingTools: string[], brokenTools: string[],
    *   unsupportedTools: string[], warnings: string[], unknownChecks: string[],
    *   updateReason: null | "version" | "versionUnknown" | "diagnostics",
-   *   needsAttention: boolean, setupMethod: "curl" | "wget" | "browser" | "unknown",
+   *   needsAttention: boolean, setupMethod: "launcher" | "curl" | "wget" | "browser" | "unknown",
    *   hostVersion: string | null, error: string | null,
    * }} SetupView
    * Missing/broken/unsupported tools are confirmed required failures only.
@@ -187,6 +192,21 @@
     return item("downloader", "ok", `Found: ${report.name}`);
   }
 
+  function launcherCheck(report) {
+    if (!isRecord(report)) return unknown("setupLauncher");
+    if (report.found === false && report.path === null) {
+      return item("setupLauncher", "warn", "Not installed or not verified; run setup to install the short-command launcher");
+    }
+    const path = report.path;
+    // The helper verifies ownership/executability. The extension checks only the
+    // reported shape and canonical suffix; it never executes or copies this path.
+    const validPath = typeof path === "string" && path.length <= 4096 && path.startsWith("/") &&
+      path.endsWith("/.local/bin/ytdlp-setup") && !/[\x00-\x1f\x7f]/.test(path) &&
+      path.slice(1).split("/").every((part) => part !== "" && part !== "." && part !== "..");
+    if (report.found !== true || !validPath) return unknown("setupLauncher");
+    return item("setupLauncher", "ok", "Verified managed launcher at $HOME/.local/bin/ytdlp-setup");
+  }
+
   function coreutilsCheck(report) {
     const found = foundStatus(report);
     if (found === null || !Array.isArray(report.missing) ||
@@ -226,6 +246,7 @@
     const supported = isHostVersionSupported(hostVersion, minVersion);
     let updateReason = supported ? null : parseVersion(hostVersion) ? "version" : "versionUnknown";
     const downloader = downloaderCheck(pong.downloader);
+    const launcher = launcherCheck(pong.setupLauncher);
     const checklist = [
       item("helper", supported ? "ok" : "bad", supported ? `Version ${hostVersion}` : updateReason === "version"
         ? `Version ${hostVersion}, needs ${minVersion} or newer`
@@ -239,6 +260,7 @@
         : hasText(pong.picker) ? item("picker", "ok", pong.picker) : unknown("picker"),
       presenceCheck("opener", pong.opener, "Found: xdg-open", "Not found: xdg-open; opening saved folders is unavailable"),
       presenceCheck("userDirs", pong.userDirs, "Found: xdg-user-dir", "Not found: xdg-user-dir; the helper falls back to ~/Downloads"),
+      launcher,
       downloader,
       coreutilsCheck(pong.coreutils),
       proxyCheck(pong.nativeMessagingProxy),
@@ -252,8 +274,8 @@
     const unsupportedTools = requiredFailures.filter((check) => check.key === "python" && !missingTools.includes(check.label)).map((check) => check.label);
     const warnings = checklist.filter((check) => check.status === "warn").map((check) => check.key);
     const state = updateReason ? "outdated" : requiredFailures.length ? "tools" : "ready";
-    const setupMethod = downloader.status === "warn" ? "browser"
-      : downloader.status === "ok" ? pong.downloader.name : "unknown";
+    const setupMethod = launcher.status === "ok" ? "launcher" : downloader.status === "ok" ? pong.downloader.name
+      : downloader.status === "warn" ? "browser" : "unknown";
     return view(state, checklist, { hostVersion, updateReason, unknownChecks, missingTools, brokenTools, unsupportedTools, warnings, setupMethod });
   }
 
